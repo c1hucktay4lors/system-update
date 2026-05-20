@@ -9,7 +9,7 @@ Made primarily with ChatGPT and Google Gemini, as I did not want to write out al
 - **Interactive TTY Logging:** Utilizes the Unix `script` pseudo-terminal utility to capture logs while preserving live `pacman` and `flatpak` progress animations, download bars, and manual interactive confirmations (`[Y/n]`).
 - **Modular Updates:** Supports targeted or combined updates for Core Packages (`pacman`), AUR Packages (`yay`), and `flatpak` applications via combinable CLI flags.
 - **Automated Sudo Handling:** Employs `sudo -v` upfront to cache user credentials, preventing broken or hidden password prompts inside detached terminal logs.
-- **Dry-Run (Simulation) Mode:** Preview incoming packages and database changes using downstream `-d` or simulation features safely before pulling files.
+- **Dry-Run (Simulation) Mode:** Preview incoming packages and database changes using downstream `-d` before pulling files.
 - **Smart Kernel Auditing:** Automatically cross-references the currently running kernel hook (`uname -r`) against newly installed core kernel images to prompt clean reboots when driver or module mismatches could occur.
 - **State-Compliant Logs:** Completely conforms to standard Unix environmental specs by routing runtime histories directly to `$XDG_STATE_HOME/system-update/`.
 
@@ -31,7 +31,7 @@ Run the script with the `-i` flag to automatically deploy it to `/usr/local/bin`
 ```bash
 ./system-update.sh -i
 ```
-Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide
+Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide:
 
 ```bash
    ===== System Update =====
@@ -44,7 +44,7 @@ Selecting no will end the script and allow you to re-run with any flags requeste
 
 ## Usage
 
-By default, executing `system-update` with no arguments triggers a full, standard maintenance sweep (equivalent to running `-pFc`).
+By default, executing `system-update` with no arguments triggers a full, standard maintenance sweep without AUR updates (equivalent to running `-pFc`).
 ```bash
 system-update [options]
 ```
@@ -55,11 +55,11 @@ system-update [options]
 | `-p` | `pacman` | Updates core system packages. | Pre-configured to execute a full system upgrade (`-Syu`). |
 | `-F` | `flatpak` | Updates Flatpak applications. | Pre-configured to automatically update all installed flatpaks. |
 | `-c` | `paccache` | Runs package cache cleanup. | Retains the last 2 versions of installed packages to save space. |
-| `-a` | `yay` | Updates AUR packages. | Optional; updates AUR packages only (disabled by default). |
+| `-a` | `yay` | Updates AUR packages. | Updates AUR packages only (disabled by default). |
 | `-d` | *Simulation* | Executes a Dry-run. | Displays a preview of what packages would be updated without changing files. |
 | `-f` | `fastfetch` | System snapshot. | Appends a clean hardware/OS summary at the very end (if installed). |
 | `-i` | *Installer* | System-wide deployment. | Copies and configures the script to `/usr/local/bin` for global access. |
-| `-h` | *Help* | Assistance menu. | Displays the CLI tool usage syntax and flags guide. |
+| `-h` | *Help* | Assistance menu. | Displays the usage, syntax and flags guide. |
 
 ## Examples
 
