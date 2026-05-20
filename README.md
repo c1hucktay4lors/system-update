@@ -15,6 +15,27 @@ Like mentioned, this is an experiment, so the releases (to be added retroactivel
 - **Smart Kernel Auditing:** Automatically cross-references the currently running kernel hook (`uname -r`) against newly installed core kernel images to prompt clean reboots when driver or module mismatches could occur.
 - **State-Compliant Logs:** Completely conforms to standard Unix environmental specs by routing runtime histories directly to `$XDG_STATE_HOME/system-update/`.
 
+## Prerequisites
+
+This script is designed to run out of the box on a standard Arch Linux system with minimal configuration. However, because it manages various package managers and system utilities, it relies on several core binaries to execute all its modules, some of which are not standard Linux system packages:
+
+* **`bash`**: The script uses a `#!/bin/bash` shebang and relies on native Bash keywords like `[[ ]]` and `getopts`. *(It will not run correctly under a strict POSIX shell like `sh` or `dash`)*.
+* **`util-linux` (provides `script`)**: Crucial for the interactive logging architecture. The `script` command creates the pseudo-terminal (TTY) that forces `pacman` to render download bars and prevents `flatpak` from defaulting to "No".
+* **`coreutils` (provides `realpath`)**: Used during the installation prompt to resolve the absolute physical path of the script source before deploying to `/usr/local/bin`.
+* **`sudo`**: Necessary to refresh credentials upfront (`sudo -v`) and to authorize root system modifications.
+* **`pacman`**: Required for the core `-p` system update flag and for auditing `linux` package strings during the kernel version check.
+* **`pacman-contrib` (provides `paccache`)**: **Important.** The `paccache` script used in the cache cleanup module (`-c`) is no longer bundled with the core `pacman` package. It must be installed separately via `pacman-contrib`.
+* **`flatpak`**: Required to run the `-F` flag to update sandboxed application runtimes and clear out unused data.
+* **`yay`** (AUR): Required if you run the script with the `-a` flag to fetch and build updates from the Arch User Repository (AUR).
+* **`fastfetch`** (Optional): Required only if you pass the `-f` flag to print a hardware/OS system summary snapshot upon script completion.
+* **`ncurses` (provides `tput`)** (Optional): Used in the help menu to calculate your terminal width (`tput cols`) and cleanly center the title text. (Safely defaults to 80 columns if missing).
+
+Use the following command to install the necessary and optional packages on either a base Arch system or an Arch derivative:
+```bash
+sudo pacman -S pacman-contrib flatpak fastfetch
+```
+[And follow the instructions to install yay here](https://github.com/jguer/yay)
+
 ## Installation
 
 ### Option 1: Using Git
@@ -23,12 +44,13 @@ Like mentioned, this is an experiment, so the releases (to be added retroactivel
 ```bash
 git clone https://github.com/mwsmith867/system-update.git
 cd system-update
-chmod +x system-update.sh
 ```
 ### Option 2: Using the Releases tab
 
-Download the latest [release](https://github.com/mwsmith867/system-update/releases/latest) and set as executable using the CLI or your GUI of choice:
-```bash
+Download the latest [release](https://github.com/mwsmith867/system-update/releases/latest).
+
+### Set as executable:
+```bash 
 chmod +x system-update.sh
 ```
 
