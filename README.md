@@ -2,7 +2,7 @@
 
 An automated, robust, and fully interactive system maintenance utility for Arch Linux. This script provides centralized package management, automated caching cleanup, and terminal-safe logging without sacrificing the native, verbose visual feedback of package managers. 
 
-Made primarily with ChatGPT and Google Gemini, as I did not want to write out all of these commands one after the other to update his system, and I had never messed with AI before in this context. This is purely an experiment to see if i can have it do what I want, but make it pretty looking. Code is AI generated, but looked over by human eyes to check for discrepancies (in which the human has made mistakes).
+Made primarily with ChatGPT and Google Gemini, as I did not want to write out all of these commands one after the other to update my system, and I had never messed with AI before in this context. This is purely an experiment to see if i can have it do what I want, but make it pretty looking. Code is AI generated, but looked over by human eyes to check for discrepancies (in which the human has made mistakes).
 
 ## Features
 
