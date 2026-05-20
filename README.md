@@ -36,12 +36,12 @@ sudo pacman -S pacman-contrib flatpak fastfetch
 
 ### Clone the repository
 ```bash
-git clone https://github.com/mwsmith867/system-update.git
+git clone https://github.com/c1hucktay4lors/system-update.git
 cd system-update
 ```
 ### Option 2: Using the Releases tab
 
-Download the latest [release](https://github.com/mwsmith867/system-update/releases/latest).
+Download the latest [release](https://github.com/c1hucktay4lors/system-update/releases/latest).
 
 ### Set as executable:
 ```bash 
