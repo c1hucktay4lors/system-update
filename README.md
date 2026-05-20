@@ -9,7 +9,7 @@ Made primarily with ChatGPT and Google Gemini, as I did not want to write out al
 - **Interactive TTY Logging:** Utilizes the Unix `script` pseudo-terminal utility to capture logs while preserving live `pacman` and `flatpak` progress animations, download bars, and manual interactive confirmations (`[Y/n]`).
 - **Modular Updates:** Supports targeted or combined updates for Core Packages (`pacman`), AUR Packages (`yay`), and `flatpak` applications via combinable CLI flags.
 - **Automated Sudo Handling:** Employs `sudo -v` upfront to cache user credentials, preventing broken or hidden password prompts inside detached terminal logs.
-- **Dry-Run (Simulation) Mode:** Preview incoming packages and database changes using downstream `--print` or simulation features safely before pulling files.
+- **Dry-Run (Simulation) Mode:** Preview incoming packages and database changes using downstream `-d` or simulation features safely before pulling files.
 - **Smart Kernel Auditing:** Automatically cross-references the currently running kernel hook (`uname -r`) against newly installed core kernel images to prompt clean reboots when driver or module mismatches could occur.
 - **State-Compliant Logs:** Completely conforms to standard Unix environmental specs by routing runtime histories directly to `$XDG_STATE_HOME/system-update/`.
 
@@ -31,7 +31,14 @@ Run the script with the `-i` flag to automatically deploy it to `/usr/local/bin`
 ```bash
 ./system-update.sh -i
 ```
-Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide.
+Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide
+
+```bash
+system-update is not installed system-wide.
+
+Would you like to install it to /usr/local/bin/system-update? (y/N): 
+```
+Selecting no, will end the script and have you re-run with any flags requested
 
 ## Usage
 
