@@ -34,11 +34,13 @@ Run the script with the `-i` flag to automatically deploy it to `/usr/local/bin`
 Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide
 
 ```bash
+   ===== System Update =====
 system-update is not installed system-wide.
 
 Would you like to install it to /usr/local/bin/system-update? (y/N): 
+
 ```
-Selecting no, will end the script and have you re-run with any flags requested
+Selecting no will end the script and allow you to re-run with any flags requested
 
 ## Usage
 
