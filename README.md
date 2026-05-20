@@ -1,15 +1,15 @@
-# Arch Linux System Update Script (`system-update`)
+# Max's Arch System Update Script (`system-update`)
 
-An automated, robust, and fully interactive system maintenance utility for Arch Linux. This script provides centralized package management, automated caching cleanup, and terminal-safe logging without sacrificing the native, verbose visual feedback of package managers. 
+A fully interactive system maintenance utility for Arch Linux. This script provides centralized package manager updates, automated cache cleanup, and terminal-safe logging without sacrificing the native, verbose visual feedback of the package managers.
 
-Made primarily with ChatGPT and Google Gemini, as I did not want to write out all of these commands one after the other to update my system, and I had never messed with AI before in this context. This is purely an experiment to see if I can have it do what I want, but make it pretty looking. Code is AI generated, but looked over by human eyes to check for discrepancies (in which the human has made mistakes).
+Made primarily with ChatGPT and Google Gemini, this project started because I wanted to update my system without manually writing out repetitive commands, and I wanted to see what it was like using AI in this context. This is purely an experiment to see if I can have AI build exactly what I want, while making it look clean and polished. The code is AI-generated but reviewed by human eyes to check for discrepancies (though the human has certainly made a few mistakes along the way!).
 
-Like mentioned, this is an experiment, so the releases (to be added retroactively) contain regressison and reworking.
+As mentioned, this is an ongoing experiment, so the releases (which are being added retroactively) will contain regressions, reworks, and continuous optimization.
 
 ## Features
 
 - **Interactive TTY Logging:** Utilizes the Unix `script` pseudo-terminal utility to capture logs while preserving live `pacman` and `flatpak` progress animations, download bars, and manual interactive confirmations (`[Y/n]`).
-- **Modular Updates:** Supports targeted or combined updates for Core Packages (`pacman`), AUR Packages (`yay`), and `flatpak` applications via combinable CLI flags.
+- **Modular Updates:** Supports targeted or combined updates for System Packages (`pacman`), AUR Packages (`yay`), and `flatpak` applications via combinable CLI flags.
 - **Automated Sudo Handling:** Employs `sudo -v` upfront to cache user credentials, preventing broken or hidden password prompts inside detached terminal logs.
 - **Dry-Run (Simulation) Mode:** Preview incoming packages and database changes using downstream `-d` before pulling files.
 - **Smart Kernel Auditing:** Automatically cross-references the currently running kernel hook (`uname -r`) against newly installed core kernel images to prompt clean reboots when driver or module mismatches could occur.
