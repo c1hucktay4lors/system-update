@@ -2,7 +2,9 @@
 
 An automated, robust, and fully interactive system maintenance utility for Arch Linux. This script provides centralized package management, automated caching cleanup, and terminal-safe logging without sacrificing the native, verbose visual feedback of package managers. 
 
-Made primarily with ChatGPT and Google Gemini, as I did not want to write out all of these commands one after the other to update my system, and I had never messed with AI before in this context. This is purely an experiment to see if i can have it do what I want, but make it pretty looking. Code is AI generated, but looked over by human eyes to check for discrepancies (in which the human has made mistakes).
+Made primarily with ChatGPT and Google Gemini, as I did not want to write out all of these commands one after the other to update my system, and I had never messed with AI before in this context. This is purely an experiment to see if I can have it do what I want, but make it pretty looking. Code is AI generated, but looked over by human eyes to check for discrepancies (in which the human has made mistakes).
+
+Like mentioned, this is an experiment, so the releases (to be added retroactively) contain regressison and reworking.
 
 ## Features
 
@@ -13,34 +15,47 @@ Made primarily with ChatGPT and Google Gemini, as I did not want to write out al
 - **Smart Kernel Auditing:** Automatically cross-references the currently running kernel hook (`uname -r`) against newly installed core kernel images to prompt clean reboots when driver or module mismatches could occur.
 - **State-Compliant Logs:** Completely conforms to standard Unix environmental specs by routing runtime histories directly to `$XDG_STATE_HOME/system-update/`.
 
----
-
 ## Installation
 
-You can run the script standalone or deploy it system-wide using the built-in deployment module.
+### Option 1: Using Git
 
-### 1. Clone the repository
+### Clone the repository
 ```bash
-git clone [https://github.com/mwsmith867/system-update.git](https://github.com/mwsmith867/system-update.git)
+git clone https://github.com/mwsmith867/system-update.git
 cd system-update
 chmod +x system-update.sh
 ```
-### 2. Install System-Wide
+### Option 2: Using the Releases tab
 
-Run the script with the `-i` flag to automatically deploy it to `/usr/local/bin`
+Download the latest [release](https://github.com/mwsmith867/system-update/releases/latest) and set as executable using the CLI or your GUI of choice:
 ```bash
-./system-update.sh -i
+chmod +x system-update.sh
 ```
-Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide:
+
+## First-time run
+
+When runing the script for the first time:
+```bash
+./system-update.sh
+```
+
+It will automatically check your environment and offer an interactive prompt to install itself in `usr/local/bin` so it can be called upon system-wide:
 
 ```bash
-   ===== System Update =====
+   ===== System Update (vX.X.X) =====
 system-update is not installed system-wide.
 
 Would you like to install it to /usr/local/bin/system-update? (y/N): 
 
 ```
-Selecting no will end the script and allow you to re-run with any flags requested
+
+Selecting no will end the script and allow you to re-run with any flags requested, as well as a ```.install_prompt_shown``` and ```system-update.log``` file being added to ```~/.local/state/system-update/``` 
+
+Run the script with the `-i` flag to automatically deploy it to `/usr/local/bin` if you select no to the inital system-wide install:
+
+```bash
+./system-update.sh -i
+```
 
 ## Usage
 
