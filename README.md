@@ -19,14 +19,74 @@ You can run the script standalone or deploy it system-wide using the built-in de
 
 ### 1. Clone the repository
 ```bash
-git clone [https://github.com/yourusername/your-repo-name.git](https://github.com/yourusername/your-repo-name.git)
-cd your-repo-name
+git clone [https://github.com/mwsmith867/system-update.git](https://github.com/mwsmith867/system-update.git)
+cd system-update
 chmod +x system-update.sh
+```
+### 2. Install System-Wide
 
-2. Install System-WideRun the script with the -i flag to automatically deploy it to /usr/local/bin:Bash./system-update.sh -i
-Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide.UsageBy default, executing system-update with no arguments triggers a full, standard maintenance sweep (equivalent to running -pFc).Bashsystem-update [options]
-Command-Line FlagsFlagModule NameDescription-pPacman CoreExecutes full system upgrade (pacman -Syu).-aAUR CoreUpdates AUR utilities and dependencies using yay.-FFlatpakSyncs Flatpak runtimes and automatically strips unused dependencies.-cCache CleanupRuns paccache -rk2 to prune package archives while keeping the last two versions.-dDry RunSimulates execution, printing pending packages without writing changes.-fSystem SnapshotAppends a fastfetch system summary terminal output upon completion.-iInstallerDeploys the script source securely into the local binaries environment.-hHelp MenuDisplays the configuration summary, local log paths, and flag pairings.ExamplesRun standard core maintenance (Pacman + Flatpak + Cache Cleanup):Bashsystem-update
-Perform a dry-run test to see what updates are pending:Bashsystem-update -d
-Run an exhaustive system upgrade including AUR and finish with a fastfetch snapshot:Bashsystem-update -paf
-Architecture & Logging MechanicsStandard shell pipeline logging (command | tee log.txt) strips out standard terminal characteristics (TTY). This causes advanced package managers like pacman to drop download animations, and causes tools like flatpak to automatically reject interactive updates by defaulting to No.To bypass this behavior, this script leverages pseudo-terminals via the script environment utility:Bashscript -eqc "sudo pacman -Syu --color=always" /dev/null | tee -a "$LOGFILE"
-This forces downstream tools to see a valid terminal matrix, preserving user choices and rich terminal colors, while tee transparently maintains an uncorrupted audit log inside ~/.local/state/system-update/system-update.log.Version Changelogv1.4.0 — Current Stable ReleaseIntegrated script utility boundaries for Flatpak and Pacman steps to restore download tracking bars and interactive manual choices inside piped streams.Implemented upfront sudo -v state token generation to protect child processes from credential context lockouts.Migrated old shell conditional parameters to native Bash double-bracket [[ ]] tests.Embedded automatic realpath tracking routines to safely find the script's physical source during deployment tasks.v1.3.6 — Streamlined individual maintenance commands and introduced modular core flags.v1.0.0 — First stable script environment with static text log integration.
+Run the script with the `-i` flag to automatically deploy it to `/usr/local/bin`
+```bash
+./system-update.sh -i
+```
+Alternatively, on its very first run, the script will automatically check your environment and offer an interactive prompt to install itself system-wide.
+
+## Usage
+
+By default, executing `system-update` with no arguments triggers a full, standard maintenance sweep (equivalent to running `-pFc`).
+```bash
+system-update [options]
+```
+### Command-Line Flags
+
+| Flag | Sub-Command / Tool | Description | Default Behavior / Notes |
+| :---: | :--- | :--- | :--- |
+| `-p` | `pacman` | Updates core system packages. | Pre-configured to execute a full system upgrade (`-Syu`). |
+| `-F` | `flatpak` | Updates Flatpak applications. | Pre-configured to automatically update all installed flatpaks. |
+| `-c` | `paccache` | Runs package cache cleanup. | Retains the last 2 versions of installed packages to save space. |
+| `-a` | `yay` | Updates AUR packages. | Optional; updates AUR packages only (disabled by default). |
+| `-d` | *Simulation* | Executes a Dry-run. | Displays a preview of what packages would be updated without changing files. |
+| `-f` | `fastfetch` | System snapshot. | Appends a clean hardware/OS summary at the very end (if installed). |
+| `-i` | *Installer* | System-wide deployment. | Copies and configures the script to `/usr/local/bin` for global access. |
+| `-h` | *Help* | Assistance menu. | Displays the CLI tool usage syntax and flags guide. |
+
+## Examples
+
+Run standard core maintenance (Pacman + Flatpak + Cache Cleanup):
+```bash
+system-update
+```
+Perform a dry-run test to see what updates are pending:
+```bash
+system-update -d
+```
+Run an exhaustive system upgrade including AUR and finish with a fastfetch snapshot:
+```bash
+system-update -paf
+```
+## Architecture & Logging Mechanics
+
+Standard shell pipeline logging (`command | tee log.txt`) strips out standard terminal characteristics (TTY). This causes advanced package managers like `pacman` to drop download animations, and causes tools like `flatpak` to automatically reject interactive updates by defaulting to `No`.
+
+To bypass this behavior, this script leverages pseudo-terminals via the `script` environment utility:
+```bash
+script -eqc "sudo pacman -Syu --color=always" /dev/null | tee -a "$LOGFILE"
+```
+
+This forces downstream tools to see a valid terminal matrix, preserving user choices and rich terminal colors, while `tee` transparently maintains an non corrupted audit log inside `~/.local/state/system-update/system-update.log`.
+
+## Version Changelog
+
+-   **v1.4.0** — _Current Stable Release_
+    
+    -   Integrated `script` utility boundaries for Flatpak and Pacman steps to restore download tracking bars and interactive manual choices inside piped streams.
+        
+    -   Implemented upfront `sudo -v` state token generation to protect child processes from credential context lockouts.
+        
+    -   Migrated old shell conditional parameters to native Bash double-bracket `[[ ]]` tests.
+        
+    -   Embedded automatic `realpath` tracking routines to safely find the script's physical source during deployment tasks.
+        
+-   **v1.3.6** — Streamlined individual maintenance commands and introduced modular core flags.
+    
+-   **v1.0.0** — First stable script environment with static text log integration.
