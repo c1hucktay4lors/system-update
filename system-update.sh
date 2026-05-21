@@ -7,7 +7,7 @@
 # Maintained and customized by Max
 # for personal system automation and learning purposes.
 #
-# Version: v1.5.2
+# Version: v1.5.3
 #
 # Changelog:
 # v0.1   - Initial release:
@@ -79,7 +79,7 @@
 #          - Implemented 'sudo -v' to prevent password prompt confusion.
 #          - Updated to modern Bash [[ ]] testing and realpath resolution.
 ########################################
-VERSION="1.5.2"
+VERSION="1.5.3"
 
 echo "if you can see this, the updater worked"
 sleep 10
