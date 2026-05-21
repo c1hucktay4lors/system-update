@@ -208,36 +208,45 @@ check_for_script_updates() {
         return
     fi
 
-    log "${BLUE}Querying GitHub API for latest release assets...${RESET}"
+    log "${BLUE}Querying GitHub API for latest release or pre-release assets...${RESET}"
 
-    # Target the API endpoint for the latest release metadata
-    local API_URL="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases/latest"
+    # Target the general releases endpoint (returns a chronological list of ALL releases)
+    local API_URL="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases"
     
-    # Fetch release JSON securely using token
-    local RELEASE_JSON
-    RELEASE_JSON=$(curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" \
-                           -H "Accept: application/vnd.github+json" "$API_URL")
+    # Fetch the full releases array JSON securely using token
+    local RELEASES_JSON
+    RELEASES_JSON=$(curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" \
+                             -H "Accept: application/vnd.github+json" "$API_URL")
 
-    # Parse the release version tag (e.g., "v1.5.0") and clean up any preceding 'v'
+    # Use jq to extract the tag_name from the absolute freshest release at index [0]
     local REMOTE_TAG
-    REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name' 2>/dev/null)
+    REMOTE_TAG=$(echo "$RELEASES_JSON" | jq -r '.[0].tag_name' 2>/dev/null)
     local REMOTE_VERSION="${REMOTE_TAG#v}" # strips 'v' if present
 
     if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "null" ]]; then
-        log "${YELLOW}Could not resolve latest release via API. (Is a release published?).${RESET}"
+        log "${YELLOW}Could not resolve any releases via API. (Is a release published?).${RESET}"
         return
     fi
+
+    # Check if that freshest release happens to be flagged as a pre-release (for visual feedback)
+    local IS_PRERELEASE
+    IS_PRERELEASE=$(echo "$RELEASES_JSON" | jq -r '.[0].prerelease' 2>/dev/null)
 
     # Compare versions using natural version sort layout
     if [[ "$VERSION" != "$REMOTE_VERSION" ]] && [[ "$(printf '%s\n%s' "$VERSION" "$REMOTE_VERSION" | sort -V | head -n 1)" == "$VERSION" ]]; then
         echo
-        echo -e "${YELLOW}[!] A new official release is available: v$REMOTE_VERSION (Local: v$VERSION)${RESET}"
+        if [[ "$IS_PRERELEASE" == "true" ]]; then
+            echo -e "${YELLOW}[!] A new PRE-RELEASE is available: v$REMOTE_VERSION (Local: v$VERSION)${RESET}"
+        else
+            echo -e "${YELLOW}[!] A new official release is available: v$REMOTE_VERSION (Local: v$VERSION)${RESET}"
+        fi
+        
         read -r -p "Would you like to upgrade the script system-wide? (y/N): " update_confirm < /dev/tty
         
         if [[ "$update_confirm" =~ ^[Yy]$ ]]; then
-            # Use jq to sift through assets and find the one matching our target file name
+            # Extract the asset ID matching our target name from that top release index [0]
             local ASSET_ID
-            ASSET_ID=$(echo "$RELEASE_JSON" | jq -r ".assets[] | select(.name==\"$ASSET_NAME\") | .id" 2>/dev/null)
+            ASSET_ID=$(echo "$RELEASES_JSON" | jq -r ".[0].assets[] | select(.name==\"$ASSET_NAME\") | .id" 2>/dev/null)
 
             if [[ -z "$ASSET_ID" || "$ASSET_ID" == "null" ]]; then
                 fail "Found release v$REMOTE_VERSION, but couldn't find an attached asset named '$ASSET_NAME'."
@@ -250,15 +259,13 @@ check_for_script_updates() {
                 TARGET_PATH=$(realpath "$0")
             fi
 
-            # Note: Downloading a raw private asset requires hitting the /assets endpoint 
-            # with an 'Accept: application/octet-stream' header
             local ASSET_URL="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases/assets/$ASSET_ID"
             
             if sudo curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" \
                             -H "Accept: application/octet-stream" \
                             "$ASSET_URL" -o "$TARGET_PATH"; then
                 sudo chmod +x "$TARGET_PATH"
-                log "${GREEN}Script successfully updated to release v$REMOTE_VERSION! Please rerun your command.${RESET}"
+                log "${GREEN}Script successfully updated to v$REMOTE_VERSION! Please rerun your command.${RESET}"
                 exit 0
             else
                 fail "Failed to deploy release asset payload to $TARGET_PATH"
@@ -266,7 +273,7 @@ check_for_script_updates() {
         fi
     else
         if [[ $force_check -eq 1 ]]; then
-            log "${GREEN}You are already on the absolute latest official release (v$VERSION).${RESET}"
+            log "${GREEN}You are already on the absolute latest release/pre-release (v$VERSION).${RESET}"
         fi
     fi
 }
