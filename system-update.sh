@@ -7,7 +7,7 @@
 # Maintained and customized by Max
 # for personal system automation and learning purposes.
 #
-# Version: v1.4.0
+# Version: v1.5.0
 #
 # Changelog:
 # v0.1   - Initial release:
