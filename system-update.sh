@@ -7,7 +7,7 @@
 # Maintained and customized by Max
 # for personal system automation and learning purposes.
 #
-# Version: v1.5.0
+# Version: v1.5.2
 #
 # Changelog:
 # v0.1   - Initial release:
@@ -79,7 +79,7 @@
 #          - Implemented 'sudo -v' to prevent password prompt confusion.
 #          - Updated to modern Bash [[ ]] testing and realpath resolution.
 ########################################
-VERSION="1.5.0"
+VERSION="1.5.2"
 
 ########################################
 # Paths/Logging setup
@@ -93,7 +93,7 @@ INSTALL_FLAG="$STATE_DIR/.install_prompt_shown"
 # --- ADD THESE FOR GITHUB UPDATES ---
 GITHUB_USER="c1hucktay4lors"       # Change to your GitHub username
 GITHUB_REPO="system-update"     # Change to your repository name
-SCRIPT_NAME="system-update.sh"   # The exact file name in your repo
+ASSET_NAME="system-update.sh"   # The exact file name in your repo
 
 mkdir -p "$STATE_DIR"
 
@@ -127,6 +127,7 @@ RUN_AUR=0
 SHOW_FETCH=0
 DRY_RUN=0
 RUN_INSTALL=0
+RUN_SCRIPT_UPDATE=0 
 
 ########################################
 # Help Menu
@@ -173,6 +174,9 @@ show_help() {
     echo "  -i        Installs/updates script in /usr/local/bin so it can be called system-wide"
     echo
     echo
+    echo "  -u        Manually checks for and installs script updates"
+    echo
+    echo
     echo "  -h        Shows this help menu"
     echo
     echo
@@ -182,14 +186,14 @@ show_help() {
     echo "  system-update -pFf      # pacman + flatpak + fetch"
     echo "  system-update -pFca     # pacman + flatpak + cache + AUR"
     echo "  system-update -d        # dry-run"
-    echo
+    echo "  system-update -u        # manual update"
 }
 
 ########################################
 # Argument parsing
 ########################################
 
-while getopts ":dfpFachi" opt; do
+while getopts ":dfpFachiu" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
         f) SHOW_FETCH=1 ;;
@@ -198,6 +202,7 @@ while getopts ":dfpFachi" opt; do
         c) RUN_CACHE=1 ;;
         a) RUN_AUR=1 ;;
         i) RUN_INSTALL=1 ;;
+        u) RUN_SCRIPT_UPDATE=1 ;;  # Captures the manual update flag
         h) show_help; exit 0 ;;
         *) show_help; exit 1 ;;
     esac
@@ -259,70 +264,106 @@ install_script() {
 }
 
 check_for_script_updates() {
-    # 1. Ensure curl is installed
-    if ! command -v curl &>/dev/null; then
+    local force_check=$1  # 1 if triggered manually via -u, 0 otherwise
+
+    if ! command -v curl &>/dev/null || ! command -v jq &>/dev/null; then
+        if [[ $force_check -eq 1 ]]; then
+            fail "Missing dependencies! Manual script updates require both 'curl' and 'jq'."
+        fi
         return
     fi
 
-    # 2. Check if our private token environment variable exists
     if [[ -z "$GITHUB_UPDATE_TOKEN" ]]; then
-        log "${YELLOW}Skipping self-update check: \$GITHUB_UPDATE_TOKEN environment variable not set.${RESET}"
+        if [[ $force_check -eq 1 ]]; then
+            fail "\$GITHUB_UPDATE_TOKEN environment variable is not set. Cannot authenticate."
+        fi
+        log "${YELLOW}Skipping update check: \$GITHUB_UPDATE_TOKEN not found.${RESET}"
         return
     fi
 
-    log "${BLUE}Checking for script updates via private GitHub...${RESET}"
-    
-    local RAW_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/main/$SCRIPT_NAME"
-    
-    # Pass the environment variable inside the Authorization header
-    local REMOTE_VERSION
-    REMOTE_VERSION=$(curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" "$RAW_URL" | grep -E '^VERSION=' | head -n 1 | cut -d'"' -f2)
+    log "${BLUE}Querying GitHub API for latest release assets...${RESET}"
 
-    if [[ -z $REMOTE_VERSION ]]; then
-        log "${YELLOW}Could not validate remote version. (Are repo details correct?).${RESET}"
+    # Target the API endpoint for the latest release metadata
+    local API_URL="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases/latest"
+    
+    # Fetch release JSON securely using token
+    local RELEASE_JSON
+    RELEASE_JSON=$(curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" \
+                           -H "Accept: application/vnd.github+json" "$API_URL")
+
+    # Parse the release version tag (e.g., "v1.5.0") and clean up any preceding 'v'
+    local REMOTE_TAG
+    REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name' 2>/dev/null)
+    local REMOTE_VERSION="${REMOTE_TAG#v}" # strips 'v' if present
+
+    if [[ -z "$REMOTE_VERSION" || "$REMOTE_VERSION" == "null" ]]; then
+        log "${YELLOW}Could not resolve latest release via API. (Is a release published?).${RESET}"
         return
     fi
 
-    # Natural version sorting check
+    # Compare versions using natural version sort layout
     if [[ "$VERSION" != "$REMOTE_VERSION" ]] && [[ "$(printf '%s\n%s' "$VERSION" "$REMOTE_VERSION" | sort -V | head -n 1)" == "$VERSION" ]]; then
         echo
-        echo -e "${YELLOW}[!] A new script version is available: v$REMOTE_VERSION (Local: v$VERSION)${RESET}"
-        read -r -p "Would you like to pull the update and install it system-wide? (y/N): " update_confirm < /dev/tty
+        echo -e "${YELLOW}[!] A new official release is available: v$REMOTE_VERSION (Local: v$VERSION)${RESET}"
+        read -r -p "Would you like to upgrade the script system-wide? (y/N): " update_confirm < /dev/tty
         
         if [[ "$update_confirm" =~ ^[Yy]$ ]]; then
-            log "${YELLOW}Downloading v$REMOTE_VERSION securely...${RESET}"
+            # Use jq to sift through assets and find the one matching our target file name
+            local ASSET_ID
+            ASSET_ID=$(echo "$RELEASE_JSON" | jq -r ".assets[] | select(.name==\"$ASSET_NAME\") | .id" 2>/dev/null)
+
+            if [[ -z "$ASSET_ID" || "$ASSET_ID" == "null" ]]; then
+                fail "Found release v$REMOTE_VERSION, but couldn't find an attached asset named '$ASSET_NAME'."
+            fi
+
+            log "${YELLOW}Downloading release asset ID: $ASSET_ID securely...${RESET}"
             
             local TARGET_PATH="$INSTALLED_PATH"
             if [[ ! -f $INSTALLED_PATH ]]; then
                 TARGET_PATH=$(realpath "$0")
             fi
 
-            # Pass the token header here as well to download the file payload
-            if sudo curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" "$RAW_URL" -o "$TARGET_PATH"; then
+            # Note: Downloading a raw private asset requires hitting the /assets endpoint 
+            # with an 'Accept: application/octet-stream' header
+            local ASSET_URL="https://api.github.com/repos/$GITHUB_USER/$GITHUB_REPO/releases/assets/$ASSET_ID"
+            
+            if sudo curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" \
+                            -H "Accept: application/octet-stream" \
+                            "$ASSET_URL" -o "$TARGET_PATH"; then
                 sudo chmod +x "$TARGET_PATH"
-                log "${GREEN}Script updated successfully to v$REMOTE_VERSION! Please rerun your command.${RESET}"
+                log "${GREEN}Script successfully updated to release v$REMOTE_VERSION! Please rerun your command.${RESET}"
                 exit 0
             else
-                fail "Failed to write the updated script to $TARGET_PATH"
+                fail "Failed to deploy release asset payload to $TARGET_PATH"
             fi
         fi
     else
-        log "${GREEN}Script is up to date (v$VERSION).${RESET}"
+        if [[ $force_check -eq 1 ]]; then
+            log "${GREEN}You are already on the absolute latest official release (v$VERSION).${RESET}"
+        fi
     fi
+}
 }
 
 #########################################
 # Execution Start
 ########################################
 
+# Route 1: Handle Manual Updater Flag (-u) exclusively
+if [[ $RUN_SCRIPT_UPDATE -eq 1 ]]; then
+    log "${BLUE}===== Manual Script Updater Module =====${RESET}"
+    check_for_script_updates 1  # Passed 1 to signal a manual forced request
+    exit 0
+fi
+
+# Route 2: Handle Routine System Diagnostics & Sweeps
 if [[ $DRY_RUN -eq 1 ]]; then
     log "${YELLOW}  ===== Starting DRY RUN (v$VERSION) =====${RESET}"
 else
     log "${BLUE}    ===== System Update (v$VERSION) =====${RESET}"
     
-    # --- CALL THE UPDATE CHECK HERE ---
-    # Only run it during live updates, not during a dry-run simulation
-    check_for_script_updates
+    # Run the update check silently in the background of standard update tasks
+    check_for_script_updates 0  # Passed 0 to keep checks subtle and non-blocking
 fi
 
 if [[ $FIRST_RUN -eq 1 ]]; then
