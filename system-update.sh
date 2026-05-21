@@ -79,7 +79,7 @@
 #          - Implemented 'sudo -v' to prevent password prompt confusion.
 #          - Updated to modern Bash [[ ]] testing and realpath resolution.
 ########################################
-VERSION="1.4.0"
+VERSION="1.5.0"
 
 ########################################
 # Paths/Logging setup
@@ -89,6 +89,11 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
 INSTALL_FLAG="$STATE_DIR/.install_prompt_shown"
+
+# --- ADD THESE FOR GITHUB UPDATES ---
+GITHUB_USER="c1hucktay4lors"       # Change to your GitHub username
+GITHUB_REPO="system-update"     # Change to your repository name
+SCRIPT_NAME="system-update.sh"   # The exact file name in your repo
 
 mkdir -p "$STATE_DIR"
 
@@ -253,6 +258,59 @@ install_script() {
     echo "You can now run 'system-update' system-wide."
 }
 
+check_for_script_updates() {
+    # 1. Ensure curl is installed
+    if ! command -v curl &>/dev/null; then
+        return
+    fi
+
+    # 2. Check if our private token environment variable exists
+    if [[ -z "$GITHUB_UPDATE_TOKEN" ]]; then
+        log "${YELLOW}Skipping self-update check: \$GITHUB_UPDATE_TOKEN environment variable not set.${RESET}"
+        return
+    fi
+
+    log "${BLUE}Checking for script updates via private GitHub...${RESET}"
+    
+    local RAW_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/main/$SCRIPT_NAME"
+    
+    # Pass the environment variable inside the Authorization header
+    local REMOTE_VERSION
+    REMOTE_VERSION=$(curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" "$RAW_URL" | grep -E '^VERSION=' | head -n 1 | cut -d'"' -f2)
+
+    if [[ -z $REMOTE_VERSION ]]; then
+        log "${YELLOW}Could not validate remote version. (Are repo details correct?).${RESET}"
+        return
+    fi
+
+    # Natural version sorting check
+    if [[ "$VERSION" != "$REMOTE_VERSION" ]] && [[ "$(printf '%s\n%s' "$VERSION" "$REMOTE_VERSION" | sort -V | head -n 1)" == "$VERSION" ]]; then
+        echo
+        echo -e "${YELLOW}[!] A new script version is available: v$REMOTE_VERSION (Local: v$VERSION)${RESET}"
+        read -r -p "Would you like to pull the update and install it system-wide? (y/N): " update_confirm < /dev/tty
+        
+        if [[ "$update_confirm" =~ ^[Yy]$ ]]; then
+            log "${YELLOW}Downloading v$REMOTE_VERSION securely...${RESET}"
+            
+            local TARGET_PATH="$INSTALLED_PATH"
+            if [[ ! -f $INSTALLED_PATH ]]; then
+                TARGET_PATH=$(realpath "$0")
+            fi
+
+            # Pass the token header here as well to download the file payload
+            if sudo curl -sL -H "Authorization: token $GITHUB_UPDATE_TOKEN" "$RAW_URL" -o "$TARGET_PATH"; then
+                sudo chmod +x "$TARGET_PATH"
+                log "${GREEN}Script updated successfully to v$REMOTE_VERSION! Please rerun your command.${RESET}"
+                exit 0
+            else
+                fail "Failed to write the updated script to $TARGET_PATH"
+            fi
+        fi
+    else
+        log "${GREEN}Script is up to date (v$VERSION).${RESET}"
+    fi
+}
+
 #########################################
 # Execution Start
 ########################################
@@ -261,6 +319,10 @@ if [[ $DRY_RUN -eq 1 ]]; then
     log "${YELLOW}  ===== Starting DRY RUN (v$VERSION) =====${RESET}"
 else
     log "${BLUE}    ===== System Update (v$VERSION) =====${RESET}"
+    
+    # --- CALL THE UPDATE CHECK HERE ---
+    # Only run it during live updates, not during a dry-run simulation
+    check_for_script_updates
 fi
 
 if [[ $FIRST_RUN -eq 1 ]]; then
