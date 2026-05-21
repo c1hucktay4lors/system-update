@@ -8,7 +8,7 @@
 # for personal system automation and learning purposes.
 ########################################
 
-VERSION="1.5.4-exp"
+VERSION="1.5.5-exp"
 
 ########################################
 # Paths/Logging setup
@@ -278,6 +278,42 @@ check_for_script_updates() {
     fi
 }
 
+check_arch_news() {
+    # If informant isn't installed, skip cleanly
+    if ! command -v informant &>/dev/null; then
+        log "${YELLOW}Note: 'informant' is not installed. Skipping Arch Linux news validation.${RESET}"
+        return
+     Jind
+
+    log "${BLUE}Checking official Arch Linux news feed for urgent interventions...${RESET}"
+    
+    # 'informant check' returns a non-zero exit code if there is unread news
+    if ! informant check &>/dev/null; then
+        echo
+        log "${RED}[!] CRITICAL ARCH NEWS DETECTED [!]${RESET}"
+        log "${YELLOW}Arch Linux has published mandatory manual intervention notices.${RESET}"
+        echo -e "--------------------------------------------------------"
+        
+        # Output the unread news headlines directly to the terminal
+        informant list --unread
+        
+        echo -e "--------------------------------------------------------"
+        echo -e "${YELLOW}It is highly recommended to read these before updating.${RESET}"
+        read -r -p "Have you reviewed the news requirements and want to proceed? (y/N): " news_confirm < /dev/tty
+        
+        if [[ ! "$news_confirm" =~ ^[Yy]$ ]]; then
+            log "${RED}Update aborted by user to review Arch News instructions.${RESET}"
+            exit 1
+        else
+            log "${YELLOW}News acknowledged. Proceeding with update sequence...${RESET}"
+            # Mark news as read so it doesn't prompt again next time
+            sudo informant read --all &>/dev/null
+        fi
+    else
+        log "${GREEN}No unread critical Arch news found.${RESET}"
+    fi
+}
+
 #########################################
 # Execution Start
 ########################################
@@ -295,8 +331,11 @@ if [[ $DRY_RUN -eq 1 ]]; then
 else
     log "${BLUE}    ===== System Update (v$VERSION) =====${RESET}"
     
-    # Run the update check silently in the background of standard update tasks
-    check_for_script_updates 0  # Passed 0 to keep checks subtle and non-blocking
+    # 1. First, check if the updater utility itself needs a release sync
+    check_for_script_updates 0
+    
+    # 2. Next, check the Arch News Feed before touching system packages
+    check_arch_news
 fi
 
 if [[ $FIRST_RUN -eq 1 ]]; then
