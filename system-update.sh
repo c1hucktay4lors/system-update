@@ -6,83 +6,9 @@
 # Created with assistance from AI (ChatGPT & Gemini)
 # Maintained and customized by Max
 # for personal system automation and learning purposes.
-#
-# Version: v1.5.3
-#
-# Changelog:
-# v0.1   - Initial release:
-#          - Basic pacman + flatpak update functionality
-# v0.2   - Simplification:
-#          - Removed AUR helper logic
-# v0.3   - Cache management:
-#          - Replaced pacman -Sc with paccache -rk2
-# v0.4   - Output improvements:
-#          - Improved verbosity and logging
-# v0.5   - Flatpak fixes:
-#          - Fixed Flatpak interactivity issues
-# v0.6   - Logging overhaul:
-#          - Added TTY-safe logging via script
-# v0.7   - System snapshot:
-#          - Added optional fastfetch system snapshot
-# v0.8   - Feature flags:
-#          - Added --fetch flag
-# v0.9   - Simulation mode:
-#          - Added --dry-run mode
-# v1.0   - Stable release:
-#          - Finalized interactive + logged script
-# v1.1   - CLI interface:
-#          - Introduced CLI flags (-d, -f, -p, -F, -c, -h)
-# v1.2   - CLI improvements:
-#          - Added combinable flags (e.g. -pFf)
-#          - Improved overall CLI behavior
-# v1.3   - Major polish:
-#          - Fixed paccache duplication (rk2 only)
-#          - Improved dry-run UX with yellow banners
-#          - Renamed script to system-update
-#          - Moved completion banner before snapshot
-#          - Added personalized attribution (Max)
-# v1.3.1 - Help menu polish:
-#          - Centered header text in help output
-#          - Added personal humor line in help banner
-# v1.3.2 - Kernel module overhaul:
-#          - Added robust kernel comparison module
-#          - Fixed false "reboot required" detection
-#          - Normalized pacman vs uname kernel formats
-#          - Added support for arch/zen/lts kernel variants
-#          - Resolved trailing "-zen" uname mismatch issue
-#          - Improved edge-case handling for missing kernel packages
-# v1.3.3 - Optional AUR support:
-#          - Added -a flag for AUR updates (yay)
-#          - Excluded AUR updates from default runs
-#          - Integrated AUR support with dry-run and logging
-# v1.3.4 - Filesystem improvements:
-#          - Moved logs to XDG state directory
-#          - Added first-run log initialization
-#          - Improved log file handling and persistence
-# v1.3.5 - Install workflow improvements:
-#          - Added optional system-wide install support
-#          - Added first-run install prompt workflow
-#          - Added install state tracking to prevent repeat prompts
-#          - Improved overall script portability
-# v1.3.6 - Kernel module simplification:
-#          - Removed reboot-required detection logic
-#          - Simplified kernel comparison workflow
-#          - Replaced normalization-based checks with direct reporting
-#          - Fixed regression causing non-kernel linux packages
-#            to appear in installed kernel output
-#          - Improved installed kernel output formatting
-#
-#
-# v1.4.0   - spit through Gemini for a second pair of AI "eyes".
-#(Gemini)  - Switched to 'script' for Flatpak and Pacman to maintain
-#            interactivity and progress bars while logging.
-#          - Implemented 'sudo -v' to prevent password prompt confusion.
-#          - Updated to modern Bash [[ ]] testing and realpath resolution.
 ########################################
-VERSION="1.5.3"
 
-echo "if you can see this, the updater worked"
-sleep 10
+VERSION="1.5.4-exp"
 
 ########################################
 # Paths/Logging setup
@@ -92,11 +18,9 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
 INSTALL_FLAG="$STATE_DIR/.install_prompt_shown"
-
-# --- ADD THESE FOR GITHUB UPDATES ---
-GITHUB_USER="c1hucktay4lors"       # Change to your GitHub username
-GITHUB_REPO="system-update"     # Change to your repository name
-ASSET_NAME="system-update.sh"   # The exact file name in your repo
+GITHUB_USER="c1hucktay4lors"
+GITHUB_REPO="system-update" 
+ASSET_NAME="system-update.sh"
 
 mkdir -p "$STATE_DIR"
 
@@ -345,7 +269,6 @@ check_for_script_updates() {
             log "${GREEN}You are already on the absolute latest official release (v$VERSION).${RESET}"
         fi
     fi
-}
 }
 
 #########################################
