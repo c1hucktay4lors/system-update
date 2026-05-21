@@ -116,19 +116,3 @@ script -eqc "sudo pacman -Syu --color=always" /dev/null | tee -a "$LOGFILE"
 ```
 
 This forces downstream tools to see a valid terminal matrix, preserving user choices and rich terminal colors, while `tee` transparently maintains an non corrupted audit log inside `~/.local/state/system-update/system-update.log`.
-
-## Version Changelog
-
--   **v1.4.0** — _Current Stable Release_
-    
-    -   Integrated `script` utility boundaries for Flatpak and Pacman steps to restore download tracking bars and interactive manual choices inside piped streams.
-        
-    -   Implemented upfront `sudo -v` state token generation to protect child processes from credential context lockouts.
-        
-    -   Migrated old shell conditional parameters to native Bash double-bracket `[[ ]]` tests.
-        
-    -   Embedded automatic `realpath` tracking routines to safely find the script's physical source during deployment tasks.
-        
--   **v1.3.6** — Streamlined individual maintenance commands and introduced modular core flags.
-    
--   **v1.0.0** — First stable script environment with static text log integration.
