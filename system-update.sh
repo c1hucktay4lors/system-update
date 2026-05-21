@@ -283,7 +283,7 @@ check_arch_news() {
     if ! command -v informant &>/dev/null; then
         log "${YELLOW}Note: 'informant' is not installed. Skipping Arch Linux news validation.${RESET}"
         return
-     Jind
+     fi
 
     log "${BLUE}Checking official Arch Linux news feed for urgent interventions...${RESET}"
     
@@ -312,7 +312,7 @@ check_arch_news() {
     else
         log "${GREEN}No unread critical Arch news found.${RESET}"
     fi
-}
+    }
 
 #########################################
 # Execution Start
