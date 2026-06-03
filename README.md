@@ -4,8 +4,6 @@ A fully interactive system maintenance utility for Arch Linux. This script provi
 
 Made primarily with ChatGPT and Google Gemini, this project started because I wanted to update my system without manually writing out repetitive commands, and I wanted to see what it was like using AI in this context. This is purely an experiment to see if I can have AI build exactly what I want, while making it look clean and polished. The code is AI-generated but reviewed by human eyes to check for discrepancies (though the human has certainly made a few mistakes along the way!).
 
-As mentioned, this is an ongoing experiment, so the releases (which are being added retroactively) will contain regressions, reworks, and continuous optimization.
-
 ## Features
 
 - **Interactive TTY Logging:** Utilizes the Unix `script` pseudo-terminal utility to capture logs while preserving live `pacman` and `flatpak` progress animations, download bars, and manual interactive confirmations (`[Y/n]`).
