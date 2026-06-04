@@ -2,7 +2,7 @@
 #====================================================================
 # SYSTEM TOOL: Modular Script Asset Compiler
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.1
 #--------------------------------------------------------------------
 # Concatenates the source modules in src/ into a single standalone
 # executable (system-update.sh).

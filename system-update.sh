@@ -4,7 +4,7 @@
 #====================================================================
 # MODULE: Central Logging, IO Controls, & Installation Core
 #====================================================================
-# MODULE_VERSION: 1.7
+# MODULE_VERSION: 1.4
 #--------------------------------------------------------------------
 # Evaluates and spins up system logging destinations, exports
 # shell terminal coloring parameters, and defines crash controls.
@@ -17,7 +17,7 @@
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
 
-VERSION="1.6.0-beta"
+VERSION="1.7.0-beta"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
@@ -55,17 +55,17 @@ fi
 # CLEANUP / TRAP HANDLING
 #--------------------------------------------------------------------
 # A single EXIT trap that restores the terminal AND removes any temp
-# directories registered by other modules. Modules must append to
-# TEMP_DIRS rather than installing their own EXIT trap (a second
+# paths (files or directories) registered by other code. Append to
+# TEMP_PATHS rather than installing another EXIT trap (a second
 # `trap ... EXIT` would silently replace this one).
 
-TEMP_DIRS=()
+TEMP_PATHS=()
 
 cleanup() {
     stty sane 2>/dev/null || true
-    local d
-    for d in "${TEMP_DIRS[@]:-}"; do
-        [[ -n "$d" && -d "$d" ]] && rm -rf "$d"
+    local p
+    for p in "${TEMP_PATHS[@]:-}"; do
+        [[ -n "$p" && -e "$p" ]] && rm -rf "$p"
     done
 }
 trap cleanup EXIT
@@ -89,53 +89,65 @@ fail() {
 }
 
 # Clean a raw terminal stream for the log file. Reads stdin, writes a
-# readable copy to stdout. Three stages:
+# readable copy to stdout. Stages (all in one sed, then cat -s):
 #   1. Strip every ANSI/CSI escape sequence — colors (incl. 256-color and
 #      truecolor with 3+ params), cursor moves (\e[3F, \e[2E …), cursor
 #      hide/show (\e[?25l/h), and erases. The general CSI form is
-#      ESC '[' <param bytes 0x30-0x3F> <intermediate bytes 0x20-0x2F>
-#      <final byte 0x40-0x7E>; the regex below matches all of it. The `|`
-#      delimiter avoids escaping the '/' inside the intermediate class.
-#   2. Collapse carriage-return redraws to the final frame of each line,
-#      so a progress bar that repaints in place becomes one line, not
-#      dozens of partial frames.
-#   3. Drop the trailing "[####] NN%" progress-bar segment (but never a
+#      ESC '[' <param 0x30-0x3F> <intermediate 0x20-0x2F> <final 0x40-0x7E>;
+#      the regex matches all of it. The `|` delimiter avoids escaping '/'.
+#   2. `s/\r+$//` — drop the trailing carriage return on each line. A pty
+#      (which `script` uses) ends every line with \r\n, so without this
+#      the next step would treat normal lines as redraws and erase them.
+#   3. `s/.*\r//` — collapse an in-line progress redraw (frames separated
+#      by bare \r, no newline) to its final frame.
+#   4. Drop the trailing "[####] NN%" progress-bar segment (but never a
 #      "[Y/n]"-style prompt, which has no trailing percentage).
-# Finally `cat -s` squeezes runs of blank lines.
+# `cat -s` then squeezes runs of blank lines.
 filter_log() {
-    sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g' \
-        | sed -E 's/.*\r//' \
-        | sed -E 's/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
+    sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g; s/\r+$//; s/.*\r//; s/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
         | cat -s
 }
 
 # Non-interactive logged command. Use for tools that don't need a TTY
-# (e.g. paccache). Shows full output on screen; the log copy is cleaned.
-# Aborts on a non-zero exit from the command itself (not from tee).
+# (e.g. paccache). Shows full output on screen; a cleaned copy is written
+# to the log AFTER the command finishes (a synchronous temp file, not an
+# async `tee >(...)` process substitution, which bash does not wait for
+# and which can drop output from fast commands). Aborts on a non-zero
+# exit from the command itself.
 run_logged() {
     stty sane 2>/dev/null || true
-    bash -c "$1" 2>&1 | tee >( filter_log >> "$LOGFILE" )
+    local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
+    bash -c "$1" 2>&1 | tee "$tmp"
     local status=${PIPESTATUS[0]}
+    filter_log < "$tmp" >> "$LOGFILE"
+    rm -f "$tmp"
     if [[ $status -ne 0 ]]; then
         fail "Command failed: $1 (exit $status)"
     fi
+    return 0
 }
 
 # Interactive logged command. Runs the command inside a pseudo-terminal
 # via `script` so colors, progress bars and [Y/n] prompts survive on
-# screen, while a cleaned copy is appended to the log. Aborts on a
-# non-zero exit from the wrapped command.
+# screen. script's clean stdout is captured to a temp file (with `tee`,
+# synchronously) and a cleaned copy is appended to the log after the
+# command returns. Using /dev/null as script's typescript target keeps
+# its "Script started/done" banners out of the capture.
 #
-# This consolidates the previously copy-pasted `script -eqc ... | tee >(...)`
-# blocks and — importantly — actually checks the exit status, so a failed
-# pacman/flatpak run is no longer reported as success.
+# This consolidates the previously copy-pasted `script -eqc ...` blocks
+# and actually checks the exit status, so a failed pacman/flatpak run is
+# no longer reported as success.
 run_interactive_logged() {
     stty sane 2>/dev/null || true
-    script -eqc "$1" /dev/null | tee >( filter_log >> "$LOGFILE" )
+    local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
+    script -eqc "$1" /dev/null | tee "$tmp"
     local status=${PIPESTATUS[0]}
+    filter_log < "$tmp" >> "$LOGFILE"
+    rm -f "$tmp"
     if [[ $status -ne 0 ]]; then
         fail "Command failed: $1 (exit $status)"
     fi
+    return 0
 }
 
 #--------------------------------------------------------------------
@@ -210,7 +222,7 @@ check_arch_news() {
 #====================================================================
 # MODULE: Arch User Repository (AUR) Packaging Engine
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.2
 #--------------------------------------------------------------------
 # Tracks and updates AUR builds via 'yay'. The update path now runs
 # inside a PTY (like pacman/flatpak) so yay's interactive diff/build
@@ -246,7 +258,7 @@ run_aur_module() {
 #====================================================================
 # MODULE: Environment Dependency Gate
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.6
 #--------------------------------------------------------------------
 # Audits the host for every required binary on EVERY run. Because the
 # rest of the script deliberately omits per-command `command -v` guards,
@@ -348,7 +360,7 @@ check_and_install_dependencies() {
         local temp_dir; temp_dir=$(mktemp -d)
         # Register for cleanup via the shared EXIT trap instead of
         # installing our own (which would clobber the terminal-restore trap).
-        TEMP_DIRS+=("$temp_dir")
+        TEMP_PATHS+=("$temp_dir")
 
         if [[ $need_yay -eq 1 ]]; then
             log "${YELLOW}Bootstrapping 'yay' from the AUR...${RESET}"
@@ -370,7 +382,7 @@ check_and_install_dependencies() {
 #====================================================================
 # MODULE: Flatpak Sandboxed Application Updater
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.2
 #--------------------------------------------------------------------
 # Updates Flatpak applications and prunes unused runtimes. Update steps
 # run through the shared PTY-logging helper so failures are caught and
@@ -399,7 +411,7 @@ run_flatpak_module() {
 #====================================================================
 # MODULE: Secure Private GitHub Repository Production Asset Sync Engine
 #====================================================================
-# MODULE_VERSION: 1.2
+# MODULE_VERSION: 1.3
 #--------------------------------------------------------------------
 # Pings the private GitHub REST API endpoint to determine release state.
 # Features automated time-throttling to limit updates to a weekly cadence.
@@ -520,7 +532,7 @@ check_for_script_updates() {
 #====================================================================
 # MODULE: Active Linux Kernel Audit & Reboot Advisory
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.1
 #--------------------------------------------------------------------
 # Reports running vs installed kernel packages and warns when the
 # running kernel no longer matches what's on disk (reboot needed).
@@ -565,7 +577,7 @@ check_kernel_status() {
 #====================================================================
 # MODULE: Pacman Core, Cache Cleaner, Orphans & .pacnew Review
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.2
 #--------------------------------------------------------------------
 # Interfaces with pacman, cleans old cached packages, removes orphans,
 # and surfaces .pacnew/.pacsave config files that need merging.
@@ -665,7 +677,7 @@ check_pacdiff() {
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.7
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
@@ -702,6 +714,9 @@ show_help() {
     echo
     echo "  -o        Remove orphaned packages (pacman -Rns, off by default)"
     echo
+    echo "  -A        Everything: pacman + flatpak + cache + AUR + orphans + fastfetch"
+    echo "            (equivalent to -pFcaof)"
+    echo
     echo "  -d        Dry-run: show what would change, modify nothing"
     echo
     echo "  -f        Show a fastfetch system snapshot at the end"
@@ -714,10 +729,11 @@ show_help() {
     echo
     echo "Examples:"
     echo "  system-update           # run standard (equivalent to -pFc)"
+    echo "  system-update -A        # everything (-pFcaof)"
     echo "  system-update -pF       # pacman + flatpak"
     echo "  system-update -pFf      # pacman + flatpak + fetch"
     echo "  system-update -pFcao    # pacman + flatpak + cache + AUR + orphans"
-    echo "  system-update -d        # dry-run"
+    echo "  system-update -Ad       # dry-run across everything"
     echo "  system-update -u        # manual script update"
 }
 
@@ -726,9 +742,10 @@ RUN_PACMAN=0; RUN_FLATPAK=0; RUN_CACHE=0; RUN_AUR=0; RUN_ORPHANS=0
 SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0
 
 # --- Parse Arguments ---
-while getopts ":dfpFacohiu" opt; do
+while getopts ":dfpFacohiuA" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
+        A) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
         f) SHOW_FETCH=1 ;;
         p) RUN_PACMAN=1 ;;
         F) RUN_FLATPAK=1 ;;

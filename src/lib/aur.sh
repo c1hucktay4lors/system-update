@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Arch User Repository (AUR) Packaging Engine
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.2
 #--------------------------------------------------------------------
 # Tracks and updates AUR builds via 'yay'. The update path now runs
 # inside a PTY (like pacman/flatpak) so yay's interactive diff/build

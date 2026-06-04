@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Secure Private GitHub Repository Production Asset Sync Engine
 #====================================================================
-# MODULE_VERSION: 1.2
+# MODULE_VERSION: 1.3
 #--------------------------------------------------------------------
 # Pings the private GitHub REST API endpoint to determine release state.
 # Features automated time-throttling to limit updates to a weekly cadence.

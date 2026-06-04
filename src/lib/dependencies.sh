@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Environment Dependency Gate
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 1.6
 #--------------------------------------------------------------------
 # Audits the host for every required binary on EVERY run. Because the
 # rest of the script deliberately omits per-command `command -v` guards,
