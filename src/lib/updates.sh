@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Pacman Core, Cache Cleaner, Orphans & .pacnew Review
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 2.1
 #--------------------------------------------------------------------
 # Interfaces with pacman, cleans old cached packages, removes orphans,
 # and surfaces .pacnew/.pacsave config files that need merging.
@@ -34,8 +34,7 @@ run_pacman_module() {
     fi
 
     log "${YELLOW}Updating system packages...${RESET}"
-    sudo -v
-    run_interactive_logged "sudo pacman -Syu --color=always"
+    run_root_interactive_logged "pacman -Syu --color=always"
     log "${GREEN}System packages updated${RESET}"
 }
 
@@ -75,7 +74,7 @@ run_orphan_module() {
     fi
 
     local orphan_args; orphan_args=$(echo "$orphans" | tr '\n' ' ')
-    run_interactive_logged "sudo pacman -Rns $orphan_args"
+    run_root_interactive_logged "pacman -Rns $orphan_args"
     log "${GREEN}Orphaned packages removed${RESET}"
 }
 
