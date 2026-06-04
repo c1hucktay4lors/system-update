@@ -67,6 +67,7 @@ system-update [options]
 | `-c` | paccache | Trim cache, keep last 2 versions | on by default |
 | `-a` | yay | Update AUR packages | off |
 | `-o` | pacman | Remove orphaned packages (`-Rns`) | off |
+| `-e` | — | Everything: `-pFcaof` (pacman, flatpak, cache, AUR, orphans, fastfetch) | — |
 | `-d` | — | Dry-run: preview only, no changes | — |
 | `-f` | fastfetch | System snapshot at the end | — |
 | `-i` | — | Install to `/usr/local/bin` | — |
@@ -77,8 +78,8 @@ system-update [options]
 
 ```bash
 system-update           # standard: pacman + flatpak + cache trim
-system-update -d        # dry-run across the default engines
+system-update -e        # everything: pacman + flatpak + cache + AUR + orphans + fastfetch
+system-update -ed       # dry-run across everything
 system-update -paf      # pacman + AUR + fastfetch
-system-update -pFcao    # everything, including orphan removal
 system-update -u        # check for a script update now
 ```
