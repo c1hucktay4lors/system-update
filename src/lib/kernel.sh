@@ -15,9 +15,9 @@ KERNEL_REBOOT_NEEDED=0
 check_kernel_status() {
     echo
     if [[ $DRY_RUN -eq 1 ]]; then
-        log "${YELLOW}    ===== Kernel Status (Simulation) =====${RESET}"
+        log "${YELLOW}    ======== Kernel Status (Simulation) ========${RESET}"
     else
-        log "${BLUE}    ===== Kernel Status =====${RESET}"
+        log "${BLUE}    ======== Kernel Status ========${RESET}"
     fi
  
     RUNNING_KERNEL="$(uname -r)"
@@ -36,7 +36,7 @@ check_kernel_status() {
             log "$(printf '    %-12s : %s' "$kernel_pkg" "$kernel_version")"
         done <<< "$INSTALLED_KERNELS"
     fi
-    log "${BLUE}    ==========================${RESET}"
+    log "${BLUE}    ================================${RESET}"
     
     # Reboot advisory: after a kernel upgrade the running kernel's module
     # tree is removed/replaced. If the directory for the running release
