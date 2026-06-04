@@ -103,7 +103,7 @@ check_and_install_dependencies() {
         local temp_dir; temp_dir=$(mktemp -d)
         # Register for cleanup via the shared EXIT trap instead of
         # installing our own (which would clobber the terminal-restore trap).
-        TEMP_DIRS+=("$temp_dir")
+        TEMP_PATHS+=("$temp_dir")
 
         if [[ $need_yay -eq 1 ]]; then
             log "${YELLOW}Bootstrapping 'yay' from the AUR...${RESET}"
