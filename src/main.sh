@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 2.1
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
@@ -146,6 +146,11 @@ if [[ $DRY_RUN -eq 1 ]]; then
     log "${YELLOW}  ===== Starting DRY RUN (v$VERSION) =====${RESET}"
 else
     log "${BLUE}    ===== System Update (v$VERSION) =====${RESET}"
+    # Cache sudo once up front so the privileged steps below share a
+    # single prompt (see prime_sudo / run_root_interactive_logged).
+    if [[ $RUN_PACMAN -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 ]]; then
+        prime_sudo
+        fi
     # Self-update check (self-throttled to weekly).
     check_for_script_updates --weekly
     # Arch news only matters when we're about to run a pacman transaction.
