@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Central Logging, IO Controls, & Installation Core
 #====================================================================
-# MODULE_VERSION: 2.3
+# MODULE_VERSION: 2.4
 #--------------------------------------------------------------------
 # Evaluates and spins up system logging destinations, exports
 # shell terminal coloring parameters, and defines crash controls.
@@ -146,6 +146,42 @@ run_interactive_logged() {
     fi
     return 0
 }
+
+# Cache sudo credentials ONCE, up front, and keep them warm for the rest
+# of the run. Without this each privileged step prompts separately:
+# sudo's default `tty_tickets` scopes a cached password to the terminal
+# it was entered on, and `run_interactive_logged` runs commands inside a
+# fresh `script` pty (a different terminal), so a credential cached on
+# the real terminal wouldn't apply there. Pairing this with
+# `run_root_interactive_logged` (which keeps sudo on the real terminal)
+# means the whole run needs only a single prompt.
+prime_sudo() {
+    sudo -v || fail "sudo authentication failed."
+    # Refresh the timestamp periodically so a long upgrade can't let it
+    # expire and trigger a mid-run prompt. Killed by cleanup() on exit.
+    ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
+    SUDO_KEEPALIVE_PID=$!
+}
+ 
+# Like run_interactive_logged, but for commands that need root. The
+# command is run WITHOUT a leading sudo; instead `script` itself is run
+# under sudo, so the sudo authentication happens on the real terminal
+# (reusing prime_sudo's cached credential) rather than inside the pty
+# (which would prompt again). The pty still preserves color/progress,
+# and the cleaned output is still appended to the log.
+run_root_interactive_logged() {
+    stty sane 2>/dev/null || true
+    local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
+    sudo script -eqc "$1" /dev/null | tee "$tmp"
+    local status=${PIPESTATUS[0]}
+    filter_log < "$tmp" >> "$LOGFILE"
+    rm -f "$tmp"
+    if [[ $status -ne 0 ]]; then
+        fail "Command failed (root): $1 (exit $status)"
+    fi
+    return 0
+}
+
  
 #--------------------------------------------------------------------
 # SYSTEM INSTALLATION TASK INTERFACES
