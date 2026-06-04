@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Central Logging, IO Controls, & Installation Core
 #====================================================================
-# MODULE_VERSION: 2.4
+# MODULE_VERSION: 2.5
 #--------------------------------------------------------------------
 # Evaluates and spins up system logging destinations, exports
 # shell terminal coloring parameters, and defines crash controls.
@@ -14,7 +14,7 @@
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
  
-VERSION="1.7.0-beta"
+VERSION="1.8.0-beta"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
@@ -23,12 +23,20 @@ INSTALL_FLAG="$STATE_DIR/.install_prompt_shown"
 # Rotate the log once it grows past ~2 MB; keep one previous generation.
 LOG_MAX_BYTES=2097152
  
-# Terminal ANSI Color Escape Mapping Parameters
-RED="\e[31m"
-GREEN="\e[32m"
-YELLOW="\e[33m"
-BLUE="\e[34m"
-RESET="\e[0m"
+# Terminal ANSI Color Escape Mapping Parameters.
+# Suppress colors when NO_COLOR is set (https://no-color.org/) or when
+# stdout isn't a terminal (piped, redirected, or run from a timer) so
+# downstream output never gets littered with raw escape sequences. The
+# log file is filtered separately, so this only affects on-screen output.
+if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
+    RED=""; GREEN=""; YELLOW=""; BLUE=""; RESET=""
+else
+    RED="\e[31m"
+    GREEN="\e[32m"
+    YELLOW="\e[33m"
+    BLUE="\e[34m"
+    RESET="\e[0m"
+fi
  
 # Ensure runtime directories exist seamlessly
 mkdir -p "$STATE_DIR"

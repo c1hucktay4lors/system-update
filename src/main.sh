@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 2.2
+# MODULE_VERSION: 2.3
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
@@ -49,6 +49,8 @@ show_help() {
     echo
     echo "  -u        Manually check for and install script updates"
     echo
+    echo "  -V        Print the script version and exit"
+    echo
     echo "  -h        Show this help menu"
     echo
     echo "Examples:"
@@ -64,9 +66,18 @@ show_help() {
 # --- Initialize Flag Options ---
 RUN_PACMAN=0; RUN_FLATPAK=0; RUN_CACHE=0; RUN_AUR=0; RUN_ORPHANS=0
 SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0
+
+# getopts only handles single-character flags; accept the two common long
+# options as conveniences before the main parse.
+for arg in "$@"; do
+    case "$arg" in
+        --version) echo "system-update v$VERSION"; exit 0 ;;
+        --help)    show_help; exit 0 ;;
+    esac
+done
  
 # --- Parse Arguments ---
-while getopts ":defpFacohiu" opt; do
+while getopts ":defpFacohiuV" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
         e) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
@@ -78,6 +89,7 @@ while getopts ":defpFacohiu" opt; do
         o) RUN_ORPHANS=1 ;;
         i) RUN_INSTALL=1 ;;
         u) RUN_SCRIPT_UPDATE=1 ;;
+        V) echo "system-update v$VERSION"; exit 0 ;;
         h) show_help; exit 0 ;;
         *) show_help; exit 1 ;;
     esac
@@ -175,6 +187,25 @@ if [[ $RUN_PACMAN -eq 1 ]]; then
     check_kernel_status
 fi
  
+# Concise recap of what ran. Any hard failure aborts earlier via fail(),
+# so reaching the summary means every selected task succeeded.
+print_run_summary() {
+    [[ $DRY_RUN -eq 1 ]] && return 0
+    local items=() joined="" it
+    [[ $RUN_PACMAN  -eq 1 ]] && items+=("pacman -Syu")
+    [[ $RUN_AUR     -eq 1 ]] && items+=("AUR")
+    [[ $RUN_FLATPAK -eq 1 ]] && items+=("flatpak")
+    [[ $RUN_CACHE   -eq 1 ]] && items+=("cache cleanup")
+    [[ $RUN_ORPHANS -eq 1 ]] && items+=("orphan removal")
+    [[ ${#items[@]} -eq 0 ]] && return 0
+    for it in "${items[@]}"; do
+        joined+="${joined:+, }$it"
+    done
+    echo
+    log "${GREEN}Completed: ${joined}.${RESET}"
+}
+print_run_summary
+
 # Optional final system snapshot
 if [[ $SHOW_FETCH -eq 1 ]]; then
     fastfetch

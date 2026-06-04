@@ -4,7 +4,7 @@
 #====================================================================
 # MODULE: Central Logging, IO Controls, & Installation Core
 #====================================================================
-# MODULE_VERSION: 2.3
+# MODULE_VERSION: 2.5
 #--------------------------------------------------------------------
 # Evaluates and spins up system logging destinations, exports
 # shell terminal coloring parameters, and defines crash controls.
@@ -17,7 +17,7 @@
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
  
-VERSION="1.7.0-beta"
+VERSION="1.8.0-beta"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
@@ -26,12 +26,20 @@ INSTALL_FLAG="$STATE_DIR/.install_prompt_shown"
 # Rotate the log once it grows past ~2 MB; keep one previous generation.
 LOG_MAX_BYTES=2097152
  
-# Terminal ANSI Color Escape Mapping Parameters
-RED="\e[31m"
-GREEN="\e[32m"
-YELLOW="\e[33m"
-BLUE="\e[34m"
-RESET="\e[0m"
+# Terminal ANSI Color Escape Mapping Parameters.
+# Suppress colors when NO_COLOR is set (https://no-color.org/) or when
+# stdout isn't a terminal (piped, redirected, or run from a timer) so
+# downstream output never gets littered with raw escape sequences. The
+# log file is filtered separately, so this only affects on-screen output.
+if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
+    RED=""; GREEN=""; YELLOW=""; BLUE=""; RESET=""
+else
+    RED="\e[31m"
+    GREEN="\e[32m"
+    YELLOW="\e[33m"
+    BLUE="\e[34m"
+    RESET="\e[0m"
+fi
  
 # Ensure runtime directories exist seamlessly
 mkdir -p "$STATE_DIR"
@@ -60,9 +68,12 @@ fi
 # `trap ... EXIT` would silently replace this one).
  
 TEMP_PATHS=()
+SUDO_KEEPALIVE_PID=""
  
 cleanup() {
     stty sane 2>/dev/null || true
+    # Stop the sudo keep-alive loop, if one was started.
+    [[ -n "$SUDO_KEEPALIVE_PID" ]] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null
     local p
     for p in "${TEMP_PATHS[@]:-}"; do
         [[ -n "$p" && -e "$p" ]] && rm -rf "$p"
@@ -149,6 +160,42 @@ run_interactive_logged() {
     fi
     return 0
 }
+
+# Cache sudo credentials ONCE, up front, and keep them warm for the rest
+# of the run. Without this each privileged step prompts separately:
+# sudo's default `tty_tickets` scopes a cached password to the terminal
+# it was entered on, and `run_interactive_logged` runs commands inside a
+# fresh `script` pty (a different terminal), so a credential cached on
+# the real terminal wouldn't apply there. Pairing this with
+# `run_root_interactive_logged` (which keeps sudo on the real terminal)
+# means the whole run needs only a single prompt.
+prime_sudo() {
+    sudo -v || fail "sudo authentication failed."
+    # Refresh the timestamp periodically so a long upgrade can't let it
+    # expire and trigger a mid-run prompt. Killed by cleanup() on exit.
+    ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
+    SUDO_KEEPALIVE_PID=$!
+}
+ 
+# Like run_interactive_logged, but for commands that need root. The
+# command is run WITHOUT a leading sudo; instead `script` itself is run
+# under sudo, so the sudo authentication happens on the real terminal
+# (reusing prime_sudo's cached credential) rather than inside the pty
+# (which would prompt again). The pty still preserves color/progress,
+# and the cleaned output is still appended to the log.
+run_root_interactive_logged() {
+    stty sane 2>/dev/null || true
+    local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
+    sudo script -eqc "$1" /dev/null | tee "$tmp"
+    local status=${PIPESTATUS[0]}
+    filter_log < "$tmp" >> "$LOGFILE"
+    rm -f "$tmp"
+    if [[ $status -ne 0 ]]; then
+        fail "Command failed (root): $1 (exit $status)"
+    fi
+    return 0
+}
+
  
 #--------------------------------------------------------------------
 # SYSTEM INSTALLATION TASK INTERFACES
@@ -424,7 +471,7 @@ run_flatpak_module() {
 # auto-detection can't work there — set this (or export SYSUPDATE_REPO)
 # so self-update works everywhere. When run from a clone, the git remote
 # is used automatically if present.
-SCRIPT_REPO="${SYSUPDATE_REPO:-OWNER/REPO}"
+SCRIPT_REPO="${SYSUPDATE_REPO:-c1hucktay4lors/system-update}"
 
 check_for_script_updates() {
     local mode="$1"
@@ -528,56 +575,111 @@ check_for_script_updates() {
 #====================================================================
 # MODULE: Active Linux Kernel Audit & Reboot Advisory
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 2.2
 #--------------------------------------------------------------------
-# Reports running vs installed kernel packages and warns when the
-# running kernel no longer matches what's on disk (reboot needed).
+# Reports running vs installed kernel packages and flags when the
+# running kernel no longer matches what's on disk. The reboot notice
+# itself is emitted at the very end of the run (see print_reboot_notice)
+# so it's the last thing on screen, ahead of any fastfetch snapshot.
 #====================================================================
-
+ 
+# Set by check_kernel_status; consumed by print_reboot_notice at the end.
+KERNEL_REBOOT_NEEDED=0
+ 
+# Shared box rule so the status block and the reboot notice stay the
+# same width. 56 chars wide.
+KERNEL_RULE="========================================================"
+ 
 check_kernel_status() {
     echo
+    log "${BLUE}${KERNEL_RULE}${RESET}"
     if [[ $DRY_RUN -eq 1 ]]; then
-        log "${YELLOW}    ===== Kernel Status (Simulation) =====${RESET}"
+        log "${BLUE}    Kernel Status (Simulation)${RESET}"
     else
-        log "${BLUE}    ===== Kernel Status =====${RESET}"
+        log "${BLUE}    Kernel Status${RESET}"
     fi
-
+    log "${BLUE}${KERNEL_RULE}${RESET}"
+ 
     RUNNING_KERNEL="$(uname -r)"
-    log "  Running Kernel : $RUNNING_KERNEL"
-
+    log "$(printf '  %-17s : %s' "Running Kernel" "$RUNNING_KERNEL")"
+ 
     # Filter pacman output for mainline kernel package targets
     # (|| true: grep exits 1 when nothing matches).
     INSTALLED_KERNELS="$(pacman -Qq | grep -E '^linux(-(zen|lts|hardened|rt))?$' || true)"
-
+ 
     if [[ -z "$INSTALLED_KERNELS" ]]; then
-        log "  Installed Kernels : ${YELLOW}None detected via pacman${RESET}"
+        log "$(printf '  %-17s : ' "Installed Kernels")${YELLOW}None detected via pacman${RESET}"
     else
-        log "  Installed Kernel Packages:"
+        log "$(printf '  %-17s :' "Installed Kernels")"
         while read -r kernel_pkg; do
             kernel_version=$(pacman -Q "$kernel_pkg" | awk '{print $2}')
-            log "$(printf '    %-12s : %s' "$kernel_pkg" "$kernel_version")"
+            # Indent 4 + 15-wide name lines the colon up with the labels above.
+            log "$(printf '    %-15s : %s' "$kernel_pkg" "$kernel_version")"
         done <<< "$INSTALLED_KERNELS"
     fi
-
+ 
+    log "${BLUE}${KERNEL_RULE}${RESET}"
+ 
     # Reboot advisory: after a kernel upgrade the running kernel's module
     # tree is removed/replaced. If the directory for the running release
-    # is gone, the kernel on disk differs from the one in memory.
+    # is gone, the kernel on disk differs from the one in memory. Only
+    # flag it here; the actual notice is printed last (print_reboot_notice).
     if [[ ! -d "/usr/lib/modules/$RUNNING_KERNEL" ]]; then
-        echo
-        log "${YELLOW}  [!] The running kernel ($RUNNING_KERNEL) no longer has a matching module tree."
-        log "${YELLOW}      A reboot is recommended to load the updated kernel.${RESET}"
+        KERNEL_REBOOT_NEEDED=1
     fi
 }
+ 
+# Prominent reboot reminder, printed as the final output of a run so it
+# isn't scrolled off the top by a fastfetch snapshot.
+print_reboot_notice() {
+    echo
+    log "${YELLOW}${KERNEL_RULE}${RESET}"
+    log "${YELLOW}  [!] REBOOT RECOMMENDED${RESET}"
+    log "${YELLOW}      The running kernel (${RUNNING_KERNEL:-current}) no longer has a"
+    log "${YELLOW}      matching module tree. Reboot to load the updated kernel.${RESET}"
+    log "${YELLOW}${KERNEL_RULE}${RESET}"
+}
+ 
 
 # --- MODULE: updates.sh ---
 #====================================================================
 # MODULE: Pacman Core, Cache Cleaner, Orphans & .pacnew Review
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 2.2
 #--------------------------------------------------------------------
 # Interfaces with pacman, cleans old cached packages, removes orphans,
 # and surfaces .pacnew/.pacsave config files that need merging.
 #====================================================================
+
+# Pre-upgrade disk-space guard. A `pacman -Syu` that runs out of room
+# mid-transaction (in / for installed files, or in the package cache for
+# downloads) is painful to recover from, so warn before we start. Checks
+# the filesystem holding / and the one holding the pacman cache, skipping
+# the second if it's the same device. Threshold overridable via env.
+preflight_disk_space() {
+    local min_mb="${MIN_FREE_MB:-2048}"
+    local -A seen=()
+    local p line dev avail_kb avail_mb mnt low=0
+    for p in "/" "/var/cache/pacman/pkg"; do
+        [[ -d "$p" ]] || continue
+        line=$(df -Pk "$p" 2>/dev/null | awk 'NR==2') || continue
+        [[ -z "$line" ]] && continue
+        dev=$(awk '{print $1}' <<< "$line")
+        [[ -n "${seen[$dev]:-}" ]] && continue   # same filesystem, skip dupe
+        seen[$dev]=1
+        avail_kb=$(awk '{print $4}' <<< "$line")
+        mnt=$(awk '{print $6}' <<< "$line")
+        avail_mb=$(( avail_kb / 1024 ))
+        if [[ $avail_mb -lt $min_mb ]]; then
+            log "${YELLOW}[!] Low disk space on ${mnt}: ${avail_mb} MiB free (threshold ${min_mb} MiB).${RESET}"
+            low=1
+        fi
+    done
+    if [[ $low -eq 1 ]]; then
+        read -r -p "Continue with the upgrade anyway? (y/N): " sp_confirm < /dev/tty
+        [[ "$sp_confirm" =~ ^[Yy]$ ]] || fail "Aborted: insufficient free disk space."
+    fi
+}
 
 run_pacman_module() {
     if [[ $RUN_PACMAN -ne 1 ]]; then
@@ -605,9 +707,33 @@ run_pacman_module() {
         fi
     fi
 
+    preflight_disk_space
+
+    # Preview how many official updates are pending. Safe to run before
+    # the upgrade: checkupdates syncs to its own temporary database and
+    # never touches the live one. checkupdates ships with pacman-contrib,
+    # already required for paccache, so no new dependency.
+    if command -v checkupdates &>/dev/null; then
+        local pending
+        pending=$(checkupdates 2>/dev/null || true)
+        if [[ -n "$pending" ]]; then
+            log "${BLUE}$(printf '%s\n' "$pending" | grep -c .) official update(s) pending.${RESET}"
+        else
+            log "${GREEN}No official updates pending.${RESET}"
+        fi
+    fi
+
+    # Refresh the keyring BEFORE the full upgrade. A stale archlinux-keyring
+    # is the most common cause of "invalid or corrupted package (PGP
+    # signature)" failures during -Syu on infrequently-updated systems.
+    # `-Sy <pkg>` alone is the partial-upgrade footgun, but here it's
+    # immediately followed by the full -Syu below, which is the pattern
+    # the Arch wiki recommends for recovering from signature errors.
+    log "${YELLOW}Refreshing archlinux-keyring...${RESET}"
+    run_root_interactive_logged "pacman -Sy --needed --noconfirm archlinux-keyring"
+
     log "${YELLOW}Updating system packages...${RESET}"
-    sudo -v
-    run_interactive_logged "sudo pacman -Syu --color=always"
+    run_root_interactive_logged "pacman -Syu --color=always"
     log "${GREEN}System packages updated${RESET}"
 }
 
@@ -647,7 +773,7 @@ run_orphan_module() {
     fi
 
     local orphan_args; orphan_args=$(echo "$orphans" | tr '\n' ' ')
-    run_interactive_logged "sudo pacman -Rns $orphan_args"
+    run_root_interactive_logged "pacman -Rns $orphan_args"
     log "${GREEN}Orphaned packages removed${RESET}"
 }
 
@@ -673,26 +799,26 @@ check_pacdiff() {
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 2.0
+# MODULE_VERSION: 2.3
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
 #====================================================================
-
+ 
 show_help() {
     TERM_WIDTH=$(tput cols 2>/dev/null || echo 80)
-
+ 
     center_text() {
         local text="$1"
         local padding=$(( (TERM_WIDTH - ${#text}) / 2 ))
         [[ $padding -lt 0 ]] && padding=0
         printf "%*s%s\n" "$padding" "" "$text"
     }
-
+ 
     echo
     center_text "System Update Script (v$VERSION)"
     center_text "Created by Max"
-    center_text "(and ChatGPT/Gemini, because I didn't want to manually type out 3-4 commands to update my system)"
+    center_text "(and ChatGPT/Gemini/Claude, because I didn't want to manually type out 3-4 commands to update my system)"
     echo
     echo
     echo "Log file: ~/.local/state/system-update/system-update.log"
@@ -721,6 +847,8 @@ show_help() {
     echo
     echo "  -u        Manually check for and install script updates"
     echo
+    echo "  -V        Print the script version and exit"
+    echo
     echo "  -h        Show this help menu"
     echo
     echo "Examples:"
@@ -732,13 +860,22 @@ show_help() {
     echo "  system-update -ed       # dry-run across everything"
     echo "  system-update -u        # manual script update"
 }
-
+ 
 # --- Initialize Flag Options ---
 RUN_PACMAN=0; RUN_FLATPAK=0; RUN_CACHE=0; RUN_AUR=0; RUN_ORPHANS=0
 SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0
 
+# getopts only handles single-character flags; accept the two common long
+# options as conveniences before the main parse.
+for arg in "$@"; do
+    case "$arg" in
+        --version) echo "system-update v$VERSION"; exit 0 ;;
+        --help)    show_help; exit 0 ;;
+    esac
+done
+ 
 # --- Parse Arguments ---
-while getopts ":defpFacohiu" opt; do
+while getopts ":defpFacohiuV" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
         e) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
@@ -750,46 +887,47 @@ while getopts ":defpFacohiu" opt; do
         o) RUN_ORPHANS=1 ;;
         i) RUN_INSTALL=1 ;;
         u) RUN_SCRIPT_UPDATE=1 ;;
+        V) echo "system-update v$VERSION"; exit 0 ;;
         h) show_help; exit 0 ;;
         *) show_help; exit 1 ;;
     esac
 done
-
+ 
 #====================================================================
 # MASTER RUNTIME ROUTING
 #====================================================================
-
+ 
 # 1. Handle manual script update requests instantly
 if [[ $RUN_SCRIPT_UPDATE -eq 1 ]]; then
     log "${BLUE}===== Manual Script Updater Module =====${RESET}"
     check_for_script_updates 1
     exit 0
 fi
-
+ 
 # 2. Environment validation gate (runs for any operational invocation).
 if [[ $RUN_INSTALL -eq 1 || $# -eq 0 || $DRY_RUN -eq 1 || $RUN_PACMAN -eq 1 \
       || $RUN_AUR -eq 1 || $RUN_FLATPAK -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 ]]; then
     check_and_install_dependencies
 fi
-
+ 
 # 3. First-time run / deployment short circuit (smart installer)
 if [[ $# -eq 0 && ! -f "/usr/local/bin/system-update" ]]; then
     clear
     TERM_WIDTH=$(tput cols 2>/dev/null || echo 80)
-
+ 
     center_alert() {
         local text; text=$(echo "$1" | sed -e 's/^[ \t]*//' -e 's/[ \t]*$//')
         local padding=$(( (TERM_WIDTH - ${#text}) / 2 ))
         [[ $padding -lt 0 ]] && padding=0
         printf "%*s%s\n" "$padding" "" "$text"
     }
-
+ 
     echo
     center_alert "$(log "${BLUE}===== Potential First-Time Run Alert =====${RESET}")"
     center_alert "It looks like system-update isn't installed system-wide yet. This could be because"
     center_alert "you are running it for the first time or testing a newly compiled version."
     echo
-
+ 
     read -r -p "Would you like to install v$VERSION system-wide to /usr/local/bin now? (y/N): " local_inst < /dev/tty
     if [[ "$local_inst" =~ ^[Yy]$ ]]; then
         install_script
@@ -798,13 +936,13 @@ if [[ $# -eq 0 && ! -f "/usr/local/bin/system-update" ]]; then
         log "${YELLOW}Proceeding with local directory execution fallback...${RESET}"
     fi
 fi
-
+ 
 # 4. Global installation flag (-i)
 if [[ $RUN_INSTALL -eq 1 ]]; then
     install_script
     exit 0
 fi
-
+ 
 # 5. Fallback: default to standard layout (-pFc) if no module flags matched
 if [[ $RUN_PACMAN -eq 0 && $RUN_FLATPAK -eq 0 && $RUN_CACHE -eq 0 && $RUN_AUR -eq 0 \
       && $RUN_ORPHANS -eq 0 && $RUN_INSTALL -eq 0 && $RUN_SCRIPT_UPDATE -eq 0 ]]; then
@@ -812,12 +950,17 @@ if [[ $RUN_PACMAN -eq 0 && $RUN_FLATPAK -eq 0 && $RUN_CACHE -eq 0 && $RUN_AUR -e
     RUN_FLATPAK=1
     RUN_CACHE=1
 fi
-
+ 
 # 6. Header + pre-update checks
 if [[ $DRY_RUN -eq 1 ]]; then
     log "${YELLOW}  ===== Starting DRY RUN (v$VERSION) =====${RESET}"
 else
     log "${BLUE}    ===== System Update (v$VERSION) =====${RESET}"
+    # Cache sudo once up front so the privileged steps below share a
+    # single prompt (see prime_sudo / run_root_interactive_logged).
+    if [[ $RUN_PACMAN -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 ]]; then
+        prime_sudo
+    fi
     # Self-update check (self-throttled to weekly).
     check_for_script_updates --weekly
     # Arch news only matters when we're about to run a pacman transaction.
@@ -825,24 +968,50 @@ else
         check_arch_news
     fi
 fi
-
+ 
 #====================================================================
 # SEQUENCE MODULE RUNNERS
 #====================================================================
-
+ 
 run_pacman_module          # pacman -Syu (+ db.lck guard)
 run_aur_module             # yay -Sua
 run_flatpak_module         # flatpak update + prune
 run_cache_cleanup_module   # paccache -rk2
 run_orphan_module          # pacman -Rns orphans (opt-in)
 check_pacdiff              # .pacnew/.pacsave review (pacman runs only)
-
+ 
 # Kernel audit + reboot advisory only when pacman was part of the run.
 if [[ $RUN_PACMAN -eq 1 ]]; then
     check_kernel_status
 fi
+ 
+# Concise recap of what ran. Any hard failure aborts earlier via fail(),
+# so reaching the summary means every selected task succeeded.
+print_run_summary() {
+    [[ $DRY_RUN -eq 1 ]] && return 0
+    local items=() joined="" it
+    [[ $RUN_PACMAN  -eq 1 ]] && items+=("pacman -Syu")
+    [[ $RUN_AUR     -eq 1 ]] && items+=("AUR")
+    [[ $RUN_FLATPAK -eq 1 ]] && items+=("flatpak")
+    [[ $RUN_CACHE   -eq 1 ]] && items+=("cache cleanup")
+    [[ $RUN_ORPHANS -eq 1 ]] && items+=("orphan removal")
+    [[ ${#items[@]} -eq 0 ]] && return 0
+    for it in "${items[@]}"; do
+        joined+="${joined:+, }$it"
+    done
+    echo
+    log "${GREEN}Completed: ${joined}.${RESET}"
+}
+print_run_summary
 
 # Optional final system snapshot
 if [[ $SHOW_FETCH -eq 1 ]]; then
     fastfetch
 fi
+ 
+# Reboot reminder LAST — it matters more than the fastfetch snapshot, so
+# it shouldn't get scrolled off the top by it.
+if [[ ${KERNEL_REBOOT_NEEDED:-0} -eq 1 ]]; then
+    print_reboot_notice
+fi
+ 

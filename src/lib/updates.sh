@@ -1,11 +1,41 @@
 #====================================================================
 # MODULE: Pacman Core, Cache Cleaner, Orphans & .pacnew Review
 #====================================================================
-# MODULE_VERSION: 2.1
+# MODULE_VERSION: 2.2
 #--------------------------------------------------------------------
 # Interfaces with pacman, cleans old cached packages, removes orphans,
 # and surfaces .pacnew/.pacsave config files that need merging.
 #====================================================================
+
+# Pre-upgrade disk-space guard. A `pacman -Syu` that runs out of room
+# mid-transaction (in / for installed files, or in the package cache for
+# downloads) is painful to recover from, so warn before we start. Checks
+# the filesystem holding / and the one holding the pacman cache, skipping
+# the second if it's the same device. Threshold overridable via env.
+preflight_disk_space() {
+    local min_mb="${MIN_FREE_MB:-2048}"
+    local -A seen=()
+    local p line dev avail_kb avail_mb mnt low=0
+    for p in "/" "/var/cache/pacman/pkg"; do
+        [[ -d "$p" ]] || continue
+        line=$(df -Pk "$p" 2>/dev/null | awk 'NR==2') || continue
+        [[ -z "$line" ]] && continue
+        dev=$(awk '{print $1}' <<< "$line")
+        [[ -n "${seen[$dev]:-}" ]] && continue   # same filesystem, skip dupe
+        seen[$dev]=1
+        avail_kb=$(awk '{print $4}' <<< "$line")
+        mnt=$(awk '{print $6}' <<< "$line")
+        avail_mb=$(( avail_kb / 1024 ))
+        if [[ $avail_mb -lt $min_mb ]]; then
+            log "${YELLOW}[!] Low disk space on ${mnt}: ${avail_mb} MiB free (threshold ${min_mb} MiB).${RESET}"
+            low=1
+        fi
+    done
+    if [[ $low -eq 1 ]]; then
+        read -r -p "Continue with the upgrade anyway? (y/N): " sp_confirm < /dev/tty
+        [[ "$sp_confirm" =~ ^[Yy]$ ]] || fail "Aborted: insufficient free disk space."
+    fi
+}
 
 run_pacman_module() {
     if [[ $RUN_PACMAN -ne 1 ]]; then
@@ -32,6 +62,31 @@ run_pacman_module() {
             fail "Aborted: pacman database is locked."
         fi
     fi
+
+    preflight_disk_space
+
+    # Preview how many official updates are pending. Safe to run before
+    # the upgrade: checkupdates syncs to its own temporary database and
+    # never touches the live one. checkupdates ships with pacman-contrib,
+    # already required for paccache, so no new dependency.
+    if command -v checkupdates &>/dev/null; then
+        local pending
+        pending=$(checkupdates 2>/dev/null || true)
+        if [[ -n "$pending" ]]; then
+            log "${BLUE}$(printf '%s\n' "$pending" | grep -c .) official update(s) pending.${RESET}"
+        else
+            log "${GREEN}No official updates pending.${RESET}"
+        fi
+    fi
+
+    # Refresh the keyring BEFORE the full upgrade. A stale archlinux-keyring
+    # is the most common cause of "invalid or corrupted package (PGP
+    # signature)" failures during -Syu on infrequently-updated systems.
+    # `-Sy <pkg>` alone is the partial-upgrade footgun, but here it's
+    # immediately followed by the full -Syu below, which is the pattern
+    # the Arch wiki recommends for recovering from signature errors.
+    log "${YELLOW}Refreshing archlinux-keyring...${RESET}"
+    run_root_interactive_logged "pacman -Sy --needed --noconfirm archlinux-keyring"
 
     log "${YELLOW}Updating system packages...${RESET}"
     run_root_interactive_logged "pacman -Syu --color=always"
