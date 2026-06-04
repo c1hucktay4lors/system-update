@@ -36,7 +36,8 @@ check_kernel_status() {
             log "$(printf '    %-12s : %s' "$kernel_pkg" "$kernel_version")"
         done <<< "$INSTALLED_KERNELS"
     fi
- 
+    log "${BLUE}    ==========================${RESET}"
+    
     # Reboot advisory: after a kernel upgrade the running kernel's module
     # tree is removed/replaced. If the directory for the running release
     # is gone, the kernel on disk differs from the one in memory. Only
