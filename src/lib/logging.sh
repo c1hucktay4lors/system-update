@@ -52,17 +52,17 @@ fi
 # CLEANUP / TRAP HANDLING
 #--------------------------------------------------------------------
 # A single EXIT trap that restores the terminal AND removes any temp
-# directories registered by other modules. Modules must append to
-# TEMP_DIRS rather than installing their own EXIT trap (a second
+# paths (files or directories) registered by other code. Append to
+# TEMP_PATHS rather than installing another EXIT trap (a second
 # `trap ... EXIT` would silently replace this one).
 
-TEMP_DIRS=()
+TEMP_PATHS=()
 
 cleanup() {
     stty sane 2>/dev/null || true
-    local d
-    for d in "${TEMP_DIRS[@]:-}"; do
-        [[ -n "$d" && -d "$d" ]] && rm -rf "$d"
+    local p
+    for p in "${TEMP_PATHS[@]:-}"; do
+        [[ -n "$p" && -e "$p" ]] && rm -rf "$p"
     done
 }
 trap cleanup EXIT
@@ -107,32 +107,45 @@ filter_log() {
 }
 
 # Non-interactive logged command. Use for tools that don't need a TTY
-# (e.g. paccache). Shows full output on screen; the log copy is cleaned.
-# Aborts on a non-zero exit from the command itself (not from tee).
+# (e.g. paccache). Shows full output on screen; a cleaned copy is written
+# to the log AFTER the command finishes (a synchronous temp file, not an
+# async `tee >(...)` process substitution, which bash does not wait for
+# and which can drop output from fast commands). Aborts on a non-zero
+# exit from the command itself.
 run_logged() {
     stty sane 2>/dev/null || true
-    bash -c "$1" 2>&1 | tee >( filter_log >> "$LOGFILE" )
+    local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
+    bash -c "$1" 2>&1 | tee "$tmp"
     local status=${PIPESTATUS[0]}
+    filter_log < "$tmp" >> "$LOGFILE"
+    rm -f "$tmp"
     if [[ $status -ne 0 ]]; then
         fail "Command failed: $1 (exit $status)"
     fi
+    return 0
 }
 
 # Interactive logged command. Runs the command inside a pseudo-terminal
 # via `script` so colors, progress bars and [Y/n] prompts survive on
-# screen, while a cleaned copy is appended to the log. Aborts on a
-# non-zero exit from the wrapped command.
+# screen. script's clean stdout is captured to a temp file (with `tee`,
+# synchronously) and a cleaned copy is appended to the log after the
+# command returns. Using /dev/null as script's typescript target keeps
+# its "Script started/done" banners out of the capture.
 #
-# This consolidates the previously copy-pasted `script -eqc ... | tee >(...)`
-# blocks and — importantly — actually checks the exit status, so a failed
-# pacman/flatpak run is no longer reported as success.
+# This consolidates the previously copy-pasted `script -eqc ...` blocks
+# and actually checks the exit status, so a failed pacman/flatpak run is
+# no longer reported as success.
 run_interactive_logged() {
     stty sane 2>/dev/null || true
-    script -eqc "$1" /dev/null | tee >( filter_log >> "$LOGFILE" )
+    local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
+    script -eqc "$1" /dev/null | tee "$tmp"
     local status=${PIPESTATUS[0]}
+    filter_log < "$tmp" >> "$LOGFILE"
+    rm -f "$tmp"
     if [[ $status -ne 0 ]]; then
         fail "Command failed: $1 (exit $status)"
     fi
+    return 0
 }
 
 #--------------------------------------------------------------------
