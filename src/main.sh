@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 1.7
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
@@ -38,7 +38,7 @@ show_help() {
     echo
     echo "  -o        Remove orphaned packages (pacman -Rns, off by default)"
     echo
-    echo "  -A        Everything: pacman + flatpak + cache + AUR + orphans + fastfetch"
+    echo "  -e        Everything: pacman + flatpak + cache + AUR + orphans + fastfetch"
     echo "            (equivalent to -pFcaof)"
     echo
     echo "  -d        Dry-run: show what would change, modify nothing"
@@ -53,11 +53,11 @@ show_help() {
     echo
     echo "Examples:"
     echo "  system-update           # run standard (equivalent to -pFc)"
-    echo "  system-update -A        # everything (-pFcaof)"
+    echo "  system-update -e        # everything (-pFcaof)"
     echo "  system-update -pF       # pacman + flatpak"
     echo "  system-update -pFf      # pacman + flatpak + fetch"
     echo "  system-update -pFcao    # pacman + flatpak + cache + AUR + orphans"
-    echo "  system-update -Ad       # dry-run across everything"
+    echo "  system-update -ed       # dry-run across everything"
     echo "  system-update -u        # manual script update"
 }
 
@@ -66,10 +66,10 @@ RUN_PACMAN=0; RUN_FLATPAK=0; RUN_CACHE=0; RUN_AUR=0; RUN_ORPHANS=0
 SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0
 
 # --- Parse Arguments ---
-while getopts ":dfpFacohiuA" opt; do
+while getopts ":defpFacohiu" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
-        A) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
+        e) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
         f) SHOW_FETCH=1 ;;
         p) RUN_PACMAN=1 ;;
         F) RUN_FLATPAK=1 ;;

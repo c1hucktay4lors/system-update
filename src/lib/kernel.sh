@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Active Linux Kernel Audit & Reboot Advisory
 #====================================================================
-# MODULE_VERSION: 1.1
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Reports running vs installed kernel packages and warns when the
 # running kernel no longer matches what's on disk (reboot needed).

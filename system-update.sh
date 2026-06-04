@@ -4,38 +4,38 @@
 #====================================================================
 # MODULE: Central Logging, IO Controls, & Installation Core
 #====================================================================
-# MODULE_VERSION: 1.4
+# MODULE_VERSION: 2.3
 #--------------------------------------------------------------------
 # Evaluates and spins up system logging destinations, exports
 # shell terminal coloring parameters, and defines crash controls.
 #====================================================================
-
+ 
 # Fail loudly on unset variables and on any failing stage of a pipeline.
 # NOTE: we deliberately do NOT use `set -e`. This script relies on
 # commands that return non-zero as normal signalling (informant returns
 # non-zero when news is unread, `yay -Qua` returns 1 when updates exist,
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
-
+ 
 VERSION="1.7.0-beta"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
 INSTALL_FLAG="$STATE_DIR/.install_prompt_shown"
-
+ 
 # Rotate the log once it grows past ~2 MB; keep one previous generation.
 LOG_MAX_BYTES=2097152
-
+ 
 # Terminal ANSI Color Escape Mapping Parameters
 RED="\e[31m"
 GREEN="\e[32m"
 YELLOW="\e[33m"
 BLUE="\e[34m"
 RESET="\e[0m"
-
+ 
 # Ensure runtime directories exist seamlessly
 mkdir -p "$STATE_DIR"
-
+ 
 # Rotate before opening, so a single run never balloons the active log.
 if [[ -f "$LOGFILE" ]]; then
     log_size=$(stat -c '%s' "$LOGFILE" 2>/dev/null || echo 0)
@@ -43,14 +43,14 @@ if [[ -f "$LOGFILE" ]]; then
         mv -f "$LOGFILE" "$LOGFILE.1" 2>/dev/null || true
     fi
 fi
-
+ 
 if [[ ! -f "$LOGFILE" ]]; then
     touch "$LOGFILE"
     FIRST_RUN=1
 else
     FIRST_RUN=0
 fi
-
+ 
 #--------------------------------------------------------------------
 # CLEANUP / TRAP HANDLING
 #--------------------------------------------------------------------
@@ -58,9 +58,9 @@ fi
 # paths (files or directories) registered by other code. Append to
 # TEMP_PATHS rather than installing another EXIT trap (a second
 # `trap ... EXIT` would silently replace this one).
-
+ 
 TEMP_PATHS=()
-
+ 
 cleanup() {
     stty sane 2>/dev/null || true
     local p
@@ -69,17 +69,17 @@ cleanup() {
     done
 }
 trap cleanup EXIT
-
+ 
 #--------------------------------------------------------------------
 # LOGGING INTERFACES
 #--------------------------------------------------------------------
-
+ 
 log() {
     echo -e "$1"
     # Strip any ANSI escape sequence before filing the timestamped copy.
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $(echo -e "$1" | sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g')" >> "$LOGFILE"
 }
-
+ 
 fail() {
     log "${RED}ERROR: $1${RESET}"
     if command -v notify-send &>/dev/null; then
@@ -87,7 +87,7 @@ fail() {
     fi
     exit 1
 }
-
+ 
 # Clean a raw terminal stream for the log file. Reads stdin, writes a
 # readable copy to stdout. Stages (all in one sed, then cat -s):
 #   1. Strip every ANSI/CSI escape sequence — colors (incl. 256-color and
@@ -107,7 +107,7 @@ filter_log() {
     sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g; s/\r+$//; s/.*\r//; s/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
         | cat -s
 }
-
+ 
 # Non-interactive logged command. Use for tools that don't need a TTY
 # (e.g. paccache). Shows full output on screen; a cleaned copy is written
 # to the log AFTER the command finishes (a synchronous temp file, not an
@@ -126,7 +126,7 @@ run_logged() {
     fi
     return 0
 }
-
+ 
 # Interactive logged command. Runs the command inside a pseudo-terminal
 # via `script` so colors, progress bars and [Y/n] prompts survive on
 # screen. script's clean stdout is captured to a temp file (with `tee`,
@@ -149,29 +149,29 @@ run_interactive_logged() {
     fi
     return 0
 }
-
+ 
 #--------------------------------------------------------------------
 # SYSTEM INSTALLATION TASK INTERFACES
 #--------------------------------------------------------------------
-
+ 
 install_script() {
     # Resolve absolute link tracing destination of execution parent
     SCRIPT_SRC=$(realpath "$0")
-
+ 
     echo -e "${YELLOW}Installing system-update to $INSTALLED_PATH...${RESET}"
-
+ 
     if [[ ! -f $SCRIPT_SRC ]]; then
         echo -e "${RED}Unable to determine script source at $SCRIPT_SRC.${RESET}"
         exit 1
     fi
-
+ 
     sudo cp "$SCRIPT_SRC" "$INSTALLED_PATH" || {
         echo -e "${RED}Install failed. Check sudo permissions.${RESET}"
         exit 1
     }
-
+ 
     sudo chmod +x "$INSTALLED_PATH"
-
+ 
     echo -e "${GREEN}Installed successfully!${RESET}"
     echo "You can now run 'system-update' system-wide."
 }
@@ -222,7 +222,7 @@ check_arch_news() {
 #====================================================================
 # MODULE: Arch User Repository (AUR) Packaging Engine
 #====================================================================
-# MODULE_VERSION: 1.2
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Tracks and updates AUR builds via 'yay'. The update path now runs
 # inside a PTY (like pacman/flatpak) so yay's interactive diff/build
@@ -258,7 +258,7 @@ run_aur_module() {
 #====================================================================
 # MODULE: Environment Dependency Gate
 #====================================================================
-# MODULE_VERSION: 1.6
+# MODULE_VERSION: 2.1
 #--------------------------------------------------------------------
 # Audits the host for every required binary on EVERY run. Because the
 # rest of the script deliberately omits per-command `command -v` guards,
@@ -382,7 +382,7 @@ check_and_install_dependencies() {
 #====================================================================
 # MODULE: Flatpak Sandboxed Application Updater
 #====================================================================
-# MODULE_VERSION: 1.2
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Updates Flatpak applications and prunes unused runtimes. Update steps
 # run through the shared PTY-logging helper so failures are caught and
@@ -532,7 +532,7 @@ check_for_script_updates() {
 #====================================================================
 # MODULE: Active Linux Kernel Audit & Reboot Advisory
 #====================================================================
-# MODULE_VERSION: 1.1
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Reports running vs installed kernel packages and warns when the
 # running kernel no longer matches what's on disk (reboot needed).
@@ -577,7 +577,7 @@ check_kernel_status() {
 #====================================================================
 # MODULE: Pacman Core, Cache Cleaner, Orphans & .pacnew Review
 #====================================================================
-# MODULE_VERSION: 1.2
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Interfaces with pacman, cleans old cached packages, removes orphans,
 # and surfaces .pacnew/.pacsave config files that need merging.
@@ -677,7 +677,7 @@ check_pacdiff() {
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 1.7
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
@@ -714,7 +714,7 @@ show_help() {
     echo
     echo "  -o        Remove orphaned packages (pacman -Rns, off by default)"
     echo
-    echo "  -A        Everything: pacman + flatpak + cache + AUR + orphans + fastfetch"
+    echo "  -e        Everything: pacman + flatpak + cache + AUR + orphans + fastfetch"
     echo "            (equivalent to -pFcaof)"
     echo
     echo "  -d        Dry-run: show what would change, modify nothing"
@@ -729,11 +729,11 @@ show_help() {
     echo
     echo "Examples:"
     echo "  system-update           # run standard (equivalent to -pFc)"
-    echo "  system-update -A        # everything (-pFcaof)"
+    echo "  system-update -e        # everything (-pFcaof)"
     echo "  system-update -pF       # pacman + flatpak"
     echo "  system-update -pFf      # pacman + flatpak + fetch"
     echo "  system-update -pFcao    # pacman + flatpak + cache + AUR + orphans"
-    echo "  system-update -Ad       # dry-run across everything"
+    echo "  system-update -ed       # dry-run across everything"
     echo "  system-update -u        # manual script update"
 }
 
@@ -742,10 +742,10 @@ RUN_PACMAN=0; RUN_FLATPAK=0; RUN_CACHE=0; RUN_AUR=0; RUN_ORPHANS=0
 SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0
 
 # --- Parse Arguments ---
-while getopts ":dfpFacohiuA" opt; do
+while getopts ":defpFacohiu" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
-        A) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
+        e) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
         f) SHOW_FETCH=1 ;;
         p) RUN_PACMAN=1 ;;
         F) RUN_FLATPAK=1 ;;

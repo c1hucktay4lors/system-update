@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Flatpak Sandboxed Application Updater
 #====================================================================
-# MODULE_VERSION: 1.2
+# MODULE_VERSION: 2.0
 #--------------------------------------------------------------------
 # Updates Flatpak applications and prunes unused runtimes. Update steps
 # run through the shared PTY-logging helper so failures are caught and
