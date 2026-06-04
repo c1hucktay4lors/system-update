@@ -1,6 +1,6 @@
-# `system-update` (Testing)
+# `system-update` (Claude)
 
-A small Bash wrapper that runs my usual Arch maintenance steps with one command instead of typing four. This is the `Testing` branch where I try changes before they're stable. Most of it was written with AI assistance.
+A small Bash wrapper that runs my usual Arch maintenance steps with one command instead of typing four. This is the `Claude` branch where I used a friends Claude Pro subscription and Opus to rewrite Gemini's code.
 
 ---
 
