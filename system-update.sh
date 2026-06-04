@@ -76,8 +76,8 @@ trap cleanup EXIT
 
 log() {
     echo -e "$1"
-    # Strip raw terminal colors via sed before filing out to logs
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $(echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g')" >> "$LOGFILE"
+    # Strip any ANSI escape sequence before filing the timestamped copy.
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $(echo -e "$1" | sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g')" >> "$LOGFILE"
 }
 
 fail() {
@@ -88,12 +88,33 @@ fail() {
     exit 1
 }
 
+# Clean a raw terminal stream for the log file. Reads stdin, writes a
+# readable copy to stdout. Three stages:
+#   1. Strip every ANSI/CSI escape sequence — colors (incl. 256-color and
+#      truecolor with 3+ params), cursor moves (\e[3F, \e[2E …), cursor
+#      hide/show (\e[?25l/h), and erases. The general CSI form is
+#      ESC '[' <param bytes 0x30-0x3F> <intermediate bytes 0x20-0x2F>
+#      <final byte 0x40-0x7E>; the regex below matches all of it. The `|`
+#      delimiter avoids escaping the '/' inside the intermediate class.
+#   2. Collapse carriage-return redraws to the final frame of each line,
+#      so a progress bar that repaints in place becomes one line, not
+#      dozens of partial frames.
+#   3. Drop the trailing "[####] NN%" progress-bar segment (but never a
+#      "[Y/n]"-style prompt, which has no trailing percentage).
+# Finally `cat -s` squeezes runs of blank lines.
+filter_log() {
+    sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g' \
+        | sed -E 's/.*\r//' \
+        | sed -E 's/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
+        | cat -s
+}
+
 # Non-interactive logged command. Use for tools that don't need a TTY
-# (e.g. paccache). Captures combined output to the log and aborts on
-# a non-zero exit from the command itself (not from tee).
+# (e.g. paccache). Shows full output on screen; the log copy is cleaned.
+# Aborts on a non-zero exit from the command itself (not from tee).
 run_logged() {
     stty sane 2>/dev/null || true
-    bash -c "$1" 2>&1 | tee -a "$LOGFILE"
+    bash -c "$1" 2>&1 | tee >( filter_log >> "$LOGFILE" )
     local status=${PIPESTATUS[0]}
     if [[ $status -ne 0 ]]; then
         fail "Command failed: $1 (exit $status)"
@@ -101,18 +122,16 @@ run_logged() {
 }
 
 # Interactive logged command. Runs the command inside a pseudo-terminal
-# via `script` so colors, progress bars and [Y/n] prompts survive, while
-# a color-stripped copy is appended to the log. Aborts on a non-zero
-# exit from the wrapped command.
+# via `script` so colors, progress bars and [Y/n] prompts survive on
+# screen, while a cleaned copy is appended to the log. Aborts on a
+# non-zero exit from the wrapped command.
 #
 # This consolidates the previously copy-pasted `script -eqc ... | tee >(...)`
 # blocks and — importantly — actually checks the exit status, so a failed
 # pacman/flatpak run is no longer reported as success.
 run_interactive_logged() {
     stty sane 2>/dev/null || true
-    script -eqc "$1" /dev/null | tee >(
-        sed -E 's/\r+/\n/g' | sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g" >> "$LOGFILE"
-    )
+    script -eqc "$1" /dev/null | tee >( filter_log >> "$LOGFILE" )
     local status=${PIPESTATUS[0]}
     if [[ $status -ne 0 ]]; then
         fail "Command failed: $1 (exit $status)"
