@@ -52,6 +52,28 @@ Logs land in `$XDG_STATE_HOME/system-update/` and rotate once they pass ~2 MB.
 
 If `shellcheck` is installed, `build.sh` runs it and fails the build on errors.
 
+## Self-update
+
+`system-update -u` checks the latest GitHub release and offers to upgrade in place. The repository is public, so no token is needed. When run from a clone it reads the repo from the git remote; the installed copy in `/usr/local/bin` has no git metadata, so set the repo once — either edit `SCRIPT_REPO` in `src/lib/github.sh` (the `OWNER/REPO` placeholder) or export `SYSUPDATE_REPO=owner/repo`.
+
+## Releasing
+
+A release attaches a single file named `system-update` (no extension — the name the self-updater downloads) to a GitHub release. Build it locally with:
+
+```bash
+./make-release.sh   # builds + slims comments -> ./system-update
+```
+
+The slimming only removes whole-line comments and blank runs (inline code is untouched), and the result is re-checked with `bash -n`.
+
+To publish, tag a version matching `VERSION` in `src/lib/logging.sh` and push it:
+
+```bash
+git tag v1.7.0-beta && git push origin v1.7.0-beta
+```
+
+The `.github/workflows/release.yml` Action then builds, lints, verifies the tag matches `VERSION`, and creates the release with `system-update` attached (tags containing a hyphen, like `-beta`, are marked pre-release). The slimmed asset is a build artifact — no need to commit it.
+
 ## Usage
 
 By default (no flags), `system-update` runs the equivalent of `-pFc`.
