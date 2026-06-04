@@ -57,9 +57,12 @@ fi
 # `trap ... EXIT` would silently replace this one).
  
 TEMP_PATHS=()
+SUDO_KEEPALIVE_PID=""
  
 cleanup() {
     stty sane 2>/dev/null || true
+    # Stop the sudo keep-alive loop, if one was started.
+    [[ -n "$SUDO_KEEPALIVE_PID" ]] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null
     local p
     for p in "${TEMP_PATHS[@]:-}"; do
         [[ -n "$p" && -e "$p" ]] && rm -rf "$p"
