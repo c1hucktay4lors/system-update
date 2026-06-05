@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 2.3
+# MODULE_VERSION: 2.4
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
@@ -38,6 +38,9 @@ show_help() {
     echo
     echo "  -o        Remove orphaned packages (pacman -Rns, off by default)"
     echo
+    echo "  -s        Take a Timeshift snapshot before package changes (rollback safety;"
+    echo "            works on ext4 via rsync. Requires timeshift to be installed.)"
+    echo
     echo "  -e        Everything: pacman + flatpak + cache + AUR + orphans + fastfetch"
     echo "            (equivalent to -pFcaof)"
     echo
@@ -59,13 +62,15 @@ show_help() {
     echo "  system-update -pF       # pacman + flatpak"
     echo "  system-update -pFf      # pacman + flatpak + fetch"
     echo "  system-update -pFcao    # pacman + flatpak + cache + AUR + orphans"
+    echo "  system-update -ps        # snapshot, then pacman upgrade"
     echo "  system-update -ed       # dry-run across everything"
     echo "  system-update -u        # manual script update"
 }
  
 # --- Initialize Flag Options ---
 RUN_PACMAN=0; RUN_FLATPAK=0; RUN_CACHE=0; RUN_AUR=0; RUN_ORPHANS=0
-SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0
+SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0; RUN_SNAPSHOT=0
+SNAPSHOT_TAKEN=0
 
 # getopts only handles single-character flags; accept the two common long
 # options as conveniences before the main parse.
@@ -77,7 +82,7 @@ for arg in "$@"; do
 done
  
 # --- Parse Arguments ---
-while getopts ":defpFacohiuV" opt; do
+while getopts ":defpFacohiuVs" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
         e) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
@@ -87,6 +92,7 @@ while getopts ":defpFacohiuV" opt; do
         c) RUN_CACHE=1 ;;
         a) RUN_AUR=1 ;;
         o) RUN_ORPHANS=1 ;;
+        s) RUN_SNAPSHOT=1 ;;
         i) RUN_INSTALL=1 ;;
         u) RUN_SCRIPT_UPDATE=1 ;;
         V) echo "system-update v$VERSION"; exit 0 ;;
@@ -108,7 +114,8 @@ fi
  
 # 2. Environment validation gate (runs for any operational invocation).
 if [[ $RUN_INSTALL -eq 1 || $# -eq 0 || $DRY_RUN -eq 1 || $RUN_PACMAN -eq 1 \
-      || $RUN_AUR -eq 1 || $RUN_FLATPAK -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 ]]; then
+      || $RUN_AUR -eq 1 || $RUN_FLATPAK -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 \
+      || $RUN_SNAPSHOT -eq 1 ]]; then
     check_and_install_dependencies
 fi
  
@@ -160,7 +167,7 @@ else
     log "${BLUE}    ===== System Update (v$VERSION) =====${RESET}"
     # Cache sudo once up front so the privileged steps below share a
     # single prompt (see prime_sudo / run_root_interactive_logged).
-    if [[ $RUN_PACMAN -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 ]]; then
+    if [[ $RUN_PACMAN -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 || $RUN_SNAPSHOT -eq 1 ]]; then
         prime_sudo
     fi
     # Self-update check (self-throttled to weekly).
@@ -175,6 +182,7 @@ fi
 # SEQUENCE MODULE RUNNERS
 #====================================================================
  
+run_snapshot_module        # Timeshift snapshot BEFORE any changes (opt-in, -s)
 run_pacman_module          # pacman -Syu (+ db.lck guard)
 run_aur_module             # yay -Sua
 run_flatpak_module         # flatpak update + prune
@@ -192,6 +200,7 @@ fi
 print_run_summary() {
     [[ $DRY_RUN -eq 1 ]] && return 0
     local items=() joined="" it
+    [[ ${SNAPSHOT_TAKEN:-0} -eq 1 ]] && items+=("Timeshift snapshot")
     [[ $RUN_PACMAN  -eq 1 ]] && items+=("pacman -Syu")
     [[ $RUN_AUR     -eq 1 ]] && items+=("AUR")
     [[ $RUN_FLATPAK -eq 1 ]] && items+=("flatpak")

@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Pacman Core, Cache Cleaner, Orphans & .pacnew Review
 #====================================================================
-# MODULE_VERSION: 2.2
+# MODULE_VERSION: 2.3
 #--------------------------------------------------------------------
 # Interfaces with pacman, cleans old cached packages, removes orphans,
 # and surfaces .pacnew/.pacsave config files that need merging.
@@ -65,28 +65,41 @@ run_pacman_module() {
 
     preflight_disk_space
 
-    # Preview how many official updates are pending. Safe to run before
-    # the upgrade: checkupdates syncs to its own temporary database and
-    # never touches the live one. checkupdates ships with pacman-contrib,
-    # already required for paccache, so no new dependency.
+    # Check pending updates ONCE; the result drives both the count preview
+    # and the keyring decision below. Safe to run pre-upgrade: checkupdates
+    # syncs to its own temporary database and never touches the live one.
+    # It ships with pacman-contrib (already required for paccache), so it's
+    # not a new dependency.
+    local pending="" keyring_pending=0 keyring_known=0
     if command -v checkupdates &>/dev/null; then
-        local pending
-        pending=$(checkupdates 2>/dev/null || true)
-        if [[ -n "$pending" ]]; then
+        pending=$(checkupdates 2>/dev/null); local cu_status=$?
+        if [[ $cu_status -eq 0 ]]; then
             log "${BLUE}$(printf '%s\n' "$pending" | grep -c .) official update(s) pending.${RESET}"
-        else
+            keyring_known=1
+            printf '%s\n' "$pending" | grep -q '^archlinux-keyring ' && keyring_pending=1
+        elif [[ $cu_status -eq 2 ]]; then
             log "${GREEN}No official updates pending.${RESET}"
+            keyring_known=1
+        else
+            log "${YELLOW}Could not check pending updates (checkupdates exit $cu_status).${RESET}"
         fi
     fi
 
-    # Refresh the keyring BEFORE the full upgrade. A stale archlinux-keyring
-    # is the most common cause of "invalid or corrupted package (PGP
-    # signature)" failures during -Syu on infrequently-updated systems.
-    # `-Sy <pkg>` alone is the partial-upgrade footgun, but here it's
-    # immediately followed by the full -Syu below, which is the pattern
-    # the Arch wiki recommends for recovering from signature errors.
-    log "${YELLOW}Refreshing archlinux-keyring...${RESET}"
-    run_root_interactive_logged "pacman -Sy --needed --noconfirm archlinux-keyring"
+    # Keyring handling BEFORE the full upgrade. A stale archlinux-keyring is
+    # the most common cause of "invalid or corrupted package (PGP signature)"
+    # failures during -Syu on infrequently-updated systems. We only do the
+    # (noisy) refresh when a newer keyring is actually available; otherwise
+    # we just confirm it's current. When the check above was inconclusive
+    # (checkupdates missing or errored) we refresh anyway, to be safe.
+    # `-Sy <pkg>` alone is the partial-upgrade footgun, but it's immediately
+    # followed by the full -Syu below, the pattern the Arch wiki recommends.
+    log "${YELLOW}Checking for an up-to-date archlinux-keyring...${RESET}"
+    if [[ $keyring_known -eq 1 && $keyring_pending -eq 0 ]]; then
+        log "${GREEN}Keyring already up to date.${RESET}"
+    else
+        log "${YELLOW}Updating archlinux-keyring...${RESET}"
+        run_root_interactive_logged "pacman -Sy --needed --noconfirm archlinux-keyring"
+    fi
 
     log "${YELLOW}Updating system packages...${RESET}"
     run_root_interactive_logged "pacman -Syu --color=always"

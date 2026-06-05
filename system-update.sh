@@ -4,7 +4,7 @@
 #====================================================================
 # MODULE: Central Logging, IO Controls, & Installation Core
 #====================================================================
-# MODULE_VERSION: 2.5
+# MODULE_VERSION: 2.6
 #--------------------------------------------------------------------
 # Evaluates and spins up system logging destinations, exports
 # shell terminal coloring parameters, and defines crash controls.
@@ -17,7 +17,7 @@
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
  
-VERSION="1.8.0-beta"
+VERSION="1.9.0-beta"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
@@ -183,6 +183,11 @@ prime_sudo() {
 # (reusing prime_sudo's cached credential) rather than inside the pty
 # (which would prompt again). The pty still preserves color/progress,
 # and the cleaned output is still appended to the log.
+#
+# Pass "nonfatal" as the second argument to return the command's exit
+# status instead of aborting via fail() — used by callers that want to
+# handle a failure themselves (e.g. the snapshot step, which prompts to
+# continue rather than killing the whole run).
 run_root_interactive_logged() {
     stty sane 2>/dev/null || true
     local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
@@ -191,6 +196,9 @@ run_root_interactive_logged() {
     filter_log < "$tmp" >> "$LOGFILE"
     rm -f "$tmp"
     if [[ $status -ne 0 ]]; then
+        if [[ "${2:-}" == "nonfatal" ]]; then
+            return "$status"
+        fi
         fail "Command failed (root): $1 (exit $status)"
     fi
     return 0
@@ -641,11 +649,67 @@ print_reboot_notice() {
 }
  
 
+# --- MODULE: snapshot.sh ---
+#====================================================================
+# MODULE: Pre-Update System Snapshot (Timeshift)
+#====================================================================
+# MODULE_VERSION: 1.1
+#--------------------------------------------------------------------
+# Takes a Timeshift snapshot before any package changes so a bad
+# upgrade can be rolled back. Timeshift is filesystem-agnostic: on
+# Btrfs it uses native CoW snapshots, and on ext4 (or anything else)
+# it falls back to incremental rsync, so this works regardless of the
+# underlying filesystem.
+#
+# Opt-in via -s (and folded into nothing else by default, so a snapshot
+# is only ever taken when explicitly requested). Best-effort: if
+# timeshift isn't installed we warn and continue; if the snapshot
+# command fails we ask whether to proceed without one rather than
+# silently upgrading unprotected.
+#====================================================================
+
+run_snapshot_module() {
+    if [[ $RUN_SNAPSHOT -ne 1 ]]; then
+        return 0
+    fi
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        log "${YELLOW}DRY-RUN: would create a Timeshift snapshot before updating.${RESET}"
+        return 0
+    fi
+
+    if ! command -v timeshift &>/dev/null; then
+        log "${YELLOW}[!] Timeshift not installed; skipping pre-update snapshot.${RESET}"
+        log "${YELLOW}    Install it to enable rollback snapshots (works on ext4 via rsync):${RESET}"
+        log "${BLUE}      sudo pacman -S timeshift${RESET}"
+        return 0
+    fi
+
+    log "${YELLOW}Creating pre-update Timeshift snapshot...${RESET}"
+    local comment; comment="system-update $(date '+%Y-%m-%d %H:%M:%S')"
+
+    # --tags O marks this as an on-demand snapshot. Run non-fatally so a
+    # failure (e.g. Timeshift not yet configured with a target device)
+    # lets us prompt instead of aborting the whole run.
+    if run_root_interactive_logged "timeshift --create --comments \"$comment\" --tags O" nonfatal; then
+        SNAPSHOT_TAKEN=1
+        log "${GREEN}Snapshot created.${RESET}"
+    else
+        log "${RED}[!] Snapshot creation failed.${RESET}"
+        log "${YELLOW}    Timeshift may not be configured yet (run 'sudo timeshift-gtk' once to pick a target).${RESET}"
+        read -r -p "Continue with the update WITHOUT a snapshot? (y/N): " snap_confirm < /dev/tty
+        if [[ ! "$snap_confirm" =~ ^[Yy]$ ]]; then
+            fail "Aborted: pre-update snapshot failed."
+        fi
+        log "${YELLOW}Proceeding without a snapshot.${RESET}"
+    fi
+}
+
 # --- MODULE: updates.sh ---
 #====================================================================
 # MODULE: Pacman Core, Cache Cleaner, Orphans & .pacnew Review
 #====================================================================
-# MODULE_VERSION: 2.2
+# MODULE_VERSION: 2.3
 #--------------------------------------------------------------------
 # Interfaces with pacman, cleans old cached packages, removes orphans,
 # and surfaces .pacnew/.pacsave config files that need merging.
@@ -709,28 +773,41 @@ run_pacman_module() {
 
     preflight_disk_space
 
-    # Preview how many official updates are pending. Safe to run before
-    # the upgrade: checkupdates syncs to its own temporary database and
-    # never touches the live one. checkupdates ships with pacman-contrib,
-    # already required for paccache, so no new dependency.
+    # Check pending updates ONCE; the result drives both the count preview
+    # and the keyring decision below. Safe to run pre-upgrade: checkupdates
+    # syncs to its own temporary database and never touches the live one.
+    # It ships with pacman-contrib (already required for paccache), so it's
+    # not a new dependency.
+    local pending="" keyring_pending=0 keyring_known=0
     if command -v checkupdates &>/dev/null; then
-        local pending
-        pending=$(checkupdates 2>/dev/null || true)
-        if [[ -n "$pending" ]]; then
+        pending=$(checkupdates 2>/dev/null); local cu_status=$?
+        if [[ $cu_status -eq 0 ]]; then
             log "${BLUE}$(printf '%s\n' "$pending" | grep -c .) official update(s) pending.${RESET}"
-        else
+            keyring_known=1
+            printf '%s\n' "$pending" | grep -q '^archlinux-keyring ' && keyring_pending=1
+        elif [[ $cu_status -eq 2 ]]; then
             log "${GREEN}No official updates pending.${RESET}"
+            keyring_known=1
+        else
+            log "${YELLOW}Could not check pending updates (checkupdates exit $cu_status).${RESET}"
         fi
     fi
 
-    # Refresh the keyring BEFORE the full upgrade. A stale archlinux-keyring
-    # is the most common cause of "invalid or corrupted package (PGP
-    # signature)" failures during -Syu on infrequently-updated systems.
-    # `-Sy <pkg>` alone is the partial-upgrade footgun, but here it's
-    # immediately followed by the full -Syu below, which is the pattern
-    # the Arch wiki recommends for recovering from signature errors.
-    log "${YELLOW}Refreshing archlinux-keyring...${RESET}"
-    run_root_interactive_logged "pacman -Sy --needed --noconfirm archlinux-keyring"
+    # Keyring handling BEFORE the full upgrade. A stale archlinux-keyring is
+    # the most common cause of "invalid or corrupted package (PGP signature)"
+    # failures during -Syu on infrequently-updated systems. We only do the
+    # (noisy) refresh when a newer keyring is actually available; otherwise
+    # we just confirm it's current. When the check above was inconclusive
+    # (checkupdates missing or errored) we refresh anyway, to be safe.
+    # `-Sy <pkg>` alone is the partial-upgrade footgun, but it's immediately
+    # followed by the full -Syu below, the pattern the Arch wiki recommends.
+    log "${YELLOW}Checking for an up-to-date archlinux-keyring...${RESET}"
+    if [[ $keyring_known -eq 1 && $keyring_pending -eq 0 ]]; then
+        log "${GREEN}Keyring already up to date.${RESET}"
+    else
+        log "${YELLOW}Updating archlinux-keyring...${RESET}"
+        run_root_interactive_logged "pacman -Sy --needed --noconfirm archlinux-keyring"
+    fi
 
     log "${YELLOW}Updating system packages...${RESET}"
     run_root_interactive_logged "pacman -Syu --color=always"
@@ -799,7 +876,7 @@ check_pacdiff() {
 #====================================================================
 # MODULE: Master System Runtime Orchestrator
 #====================================================================
-# MODULE_VERSION: 2.3
+# MODULE_VERSION: 2.4
 #--------------------------------------------------------------------
 # Parses runtime flags, validates the environment, and routes control
 # sequentially through the operational modules.
@@ -836,6 +913,9 @@ show_help() {
     echo
     echo "  -o        Remove orphaned packages (pacman -Rns, off by default)"
     echo
+    echo "  -s        Take a Timeshift snapshot before package changes (rollback safety;"
+    echo "            works on ext4 via rsync. Requires timeshift to be installed.)"
+    echo
     echo "  -e        Everything: pacman + flatpak + cache + AUR + orphans + fastfetch"
     echo "            (equivalent to -pFcaof)"
     echo
@@ -857,13 +937,15 @@ show_help() {
     echo "  system-update -pF       # pacman + flatpak"
     echo "  system-update -pFf      # pacman + flatpak + fetch"
     echo "  system-update -pFcao    # pacman + flatpak + cache + AUR + orphans"
+    echo "  system-update -ps        # snapshot, then pacman upgrade"
     echo "  system-update -ed       # dry-run across everything"
     echo "  system-update -u        # manual script update"
 }
  
 # --- Initialize Flag Options ---
 RUN_PACMAN=0; RUN_FLATPAK=0; RUN_CACHE=0; RUN_AUR=0; RUN_ORPHANS=0
-SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0
+SHOW_FETCH=0; DRY_RUN=0; RUN_INSTALL=0; RUN_SCRIPT_UPDATE=0; RUN_SNAPSHOT=0
+SNAPSHOT_TAKEN=0
 
 # getopts only handles single-character flags; accept the two common long
 # options as conveniences before the main parse.
@@ -875,7 +957,7 @@ for arg in "$@"; do
 done
  
 # --- Parse Arguments ---
-while getopts ":defpFacohiuV" opt; do
+while getopts ":defpFacohiuVs" opt; do
     case $opt in
         d) DRY_RUN=1 ;;
         e) RUN_PACMAN=1; RUN_FLATPAK=1; RUN_CACHE=1; RUN_AUR=1; RUN_ORPHANS=1; SHOW_FETCH=1 ;;
@@ -885,6 +967,7 @@ while getopts ":defpFacohiuV" opt; do
         c) RUN_CACHE=1 ;;
         a) RUN_AUR=1 ;;
         o) RUN_ORPHANS=1 ;;
+        s) RUN_SNAPSHOT=1 ;;
         i) RUN_INSTALL=1 ;;
         u) RUN_SCRIPT_UPDATE=1 ;;
         V) echo "system-update v$VERSION"; exit 0 ;;
@@ -906,7 +989,8 @@ fi
  
 # 2. Environment validation gate (runs for any operational invocation).
 if [[ $RUN_INSTALL -eq 1 || $# -eq 0 || $DRY_RUN -eq 1 || $RUN_PACMAN -eq 1 \
-      || $RUN_AUR -eq 1 || $RUN_FLATPAK -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 ]]; then
+      || $RUN_AUR -eq 1 || $RUN_FLATPAK -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 \
+      || $RUN_SNAPSHOT -eq 1 ]]; then
     check_and_install_dependencies
 fi
  
@@ -958,7 +1042,7 @@ else
     log "${BLUE}    ===== System Update (v$VERSION) =====${RESET}"
     # Cache sudo once up front so the privileged steps below share a
     # single prompt (see prime_sudo / run_root_interactive_logged).
-    if [[ $RUN_PACMAN -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 ]]; then
+    if [[ $RUN_PACMAN -eq 1 || $RUN_CACHE -eq 1 || $RUN_ORPHANS -eq 1 || $RUN_SNAPSHOT -eq 1 ]]; then
         prime_sudo
     fi
     # Self-update check (self-throttled to weekly).
@@ -973,6 +1057,7 @@ fi
 # SEQUENCE MODULE RUNNERS
 #====================================================================
  
+run_snapshot_module        # Timeshift snapshot BEFORE any changes (opt-in, -s)
 run_pacman_module          # pacman -Syu (+ db.lck guard)
 run_aur_module             # yay -Sua
 run_flatpak_module         # flatpak update + prune
@@ -990,6 +1075,7 @@ fi
 print_run_summary() {
     [[ $DRY_RUN -eq 1 ]] && return 0
     local items=() joined="" it
+    [[ ${SNAPSHOT_TAKEN:-0} -eq 1 ]] && items+=("Timeshift snapshot")
     [[ $RUN_PACMAN  -eq 1 ]] && items+=("pacman -Syu")
     [[ $RUN_AUR     -eq 1 ]] && items+=("AUR")
     [[ $RUN_FLATPAK -eq 1 ]] && items+=("flatpak")

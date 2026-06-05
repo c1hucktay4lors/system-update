@@ -1,7 +1,7 @@
 #====================================================================
 # MODULE: Central Logging, IO Controls, & Installation Core
 #====================================================================
-# MODULE_VERSION: 2.5
+# MODULE_VERSION: 2.6
 #--------------------------------------------------------------------
 # Evaluates and spins up system logging destinations, exports
 # shell terminal coloring parameters, and defines crash controls.
@@ -14,7 +14,7 @@
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
  
-VERSION="1.8.0-beta"
+VERSION="1.9.0-beta"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
@@ -180,6 +180,11 @@ prime_sudo() {
 # (reusing prime_sudo's cached credential) rather than inside the pty
 # (which would prompt again). The pty still preserves color/progress,
 # and the cleaned output is still appended to the log.
+#
+# Pass "nonfatal" as the second argument to return the command's exit
+# status instead of aborting via fail() — used by callers that want to
+# handle a failure themselves (e.g. the snapshot step, which prompts to
+# continue rather than killing the whole run).
 run_root_interactive_logged() {
     stty sane 2>/dev/null || true
     local tmp; tmp=$(mktemp); TEMP_PATHS+=("$tmp")
@@ -188,6 +193,9 @@ run_root_interactive_logged() {
     filter_log < "$tmp" >> "$LOGFILE"
     rm -f "$tmp"
     if [[ $status -ne 0 ]]; then
+        if [[ "${2:-}" == "nonfatal" ]]; then
+            return "$status"
+        fi
         fail "Command failed (root): $1 (exit $status)"
     fi
     return 0
