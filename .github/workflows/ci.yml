@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck and bats
+        run: sudo apt-get update && sudo apt-get install -y shellcheck bats
+
+      # build.sh runs `shellcheck -S error` on the compiled script and
+      # exits non-zero on any error, so this step doubles as the lint gate.
+      - name: Build (compile + shellcheck)
+        run: bash build.sh
+
+      - name: Run filter_log regression tests
+        run: bats tests/
