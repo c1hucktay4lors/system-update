@@ -16,7 +16,8 @@ show_help() {
         [[ $padding -lt 0 ]] && padding=0
         printf "%*s%s\n" "$padding" "" "$text"
     }
- 
+
+    clear
     echo
     center_text "System Update Script (v$VERSION)"
     center_text "Created by Max"
