@@ -85,7 +85,8 @@ trap cleanup EXIT
 log() {
     echo -e "$1"
     # Strip any ANSI escape sequence before filing the timestamped copy.
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $(echo -e "$1" | sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g')" >> "$LOGFILE"
+    # LC_ALL=C is required here to prevent "Invalid range end" errors in UTF-8 locales.
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $(echo -e "$1" | LC_ALL=C sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g')" >> "$LOGFILE"
 }
  
 fail() {
@@ -112,7 +113,7 @@ fail() {
 #      "[Y/n]"-style prompt, which has no trailing percentage).
 # `cat -s` then squeezes runs of blank lines.
 filter_log() {
-    sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g; s/\r+$//; s/.*\r//; s/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
+    LC_ALL=C sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g; s/\r+$//; s/.*\r//; s/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
         | cat -s
 }
  
