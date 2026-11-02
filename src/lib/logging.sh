@@ -14,7 +14,7 @@
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
  
-VERSION="1.9.0-beta"
+VERSION="1.9.0"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"

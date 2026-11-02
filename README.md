@@ -80,7 +80,7 @@ The slimming only removes whole-line comments and blank runs (inline code is unt
 To publish, tag a version matching `VERSION` in `src/lib/logging.sh` and push it:
 
 ```bash
-git tag v1.9.0-beta && git push origin v1.9.0-beta
+git tag v1.9.0 && git push origin v1.9.0
 ```
 
 The `.github/workflows/release.yml` Action then builds, lints, verifies the tag matches `VERSION`, and creates the release with `system-update` attached (tags containing a hyphen, like `-beta`, are marked pre-release). The slimmed asset is a build artifact — no need to commit it.

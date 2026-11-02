@@ -17,7 +17,7 @@
 # grep returns 1 on no match). `set -e` would abort on all of those.
 set -uo pipefail
  
-VERSION="1.9.0-beta"
+VERSION="1.9.0"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/system-update"
 LOGFILE="$STATE_DIR/system-update.log"
 INSTALLED_PATH="/usr/local/bin/system-update"
@@ -88,7 +88,8 @@ trap cleanup EXIT
 log() {
     echo -e "$1"
     # Strip any ANSI escape sequence before filing the timestamped copy.
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $(echo -e "$1" | sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g')" >> "$LOGFILE"
+    # LC_ALL=C is required here to prevent "Invalid range end" errors in UTF-8 locales.
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $(echo -e "$1" | LC_ALL=C sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g')" >> "$LOGFILE"
 }
  
 fail() {
@@ -115,7 +116,7 @@ fail() {
 #      "[Y/n]"-style prompt, which has no trailing percentage).
 # `cat -s` then squeezes runs of blank lines.
 filter_log() {
-    sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g; s/\r+$//; s/.*\r//; s/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
+    LC_ALL=C sed -E 's|\x1b\[[0-?]*[ -/]*[@-~]||g; s/\r+$//; s/.*\r//; s/[[:space:]]*\[[^]]*\][[:space:]]*[0-9]+%?[[:space:]]*$//' \
         | cat -s
 }
  
@@ -891,7 +892,8 @@ show_help() {
         [[ $padding -lt 0 ]] && padding=0
         printf "%*s%s\n" "$padding" "" "$text"
     }
- 
+
+    clear
     echo
     center_text "System Update Script (v$VERSION)"
     center_text "Created by Max"
