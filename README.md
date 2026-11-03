@@ -19,9 +19,9 @@ system-update/
 ├── system-update.sh    # the built, runnable script
 ├── tests/
 │   └── filter_log.bats # regression tests for the log-filtering function
+├── release-1.9.0.sh    # one-shot release runner (preflight, build, push, gh release create)
 ├── .github/workflows/
-│   ├── ci.yml          # build + shellcheck + bats on push / PR
-│   └── release.yml     # tag-driven release build & publish
+│   └── ci.yml          # build + shellcheck + bats on push / PR
 └── src/
     ├── main.sh         # argument parsing + run order
     └── lib/
@@ -65,25 +65,30 @@ If `shellcheck` is installed, `build.sh` runs it and fails the build on errors. 
 
 ## Self-update
 
-`system-update -u` checks the latest GitHub release and offers to upgrade in place. The repository is public, so no token is needed. When run from a clone it reads the repo from the git remote; the installed copy in `/usr/local/bin` has no git metadata, so set the repo once — either edit `SCRIPT_REPO` in `src/lib/github.sh` (the `OWNER/REPO` placeholder) or export `SYSUPDATE_REPO=owner/repo`.
+`system-update -u` checks the latest GitHub release and offers to upgrade in place. The repository is public, so no token is needed. The repo to check is baked in (`c1hucktay4lors/system-update`); a fork overrides it by exporting `SYSUPDATE_REPO=owner/repo`. When run from a git clone, the git remote takes precedence over both.
 
 ## Releasing
 
-A release attaches a single file named `system-update` (no extension — the name the self-updater downloads) to a GitHub release. Build it locally with:
+A release attaches two files: `system-update` (slimmed — the exact name the self-updater downloads) and `system-update.sh` (full build, for manual installs and older copies). Build both with:
 
 ```bash
-./make-release.sh   # builds + slims comments -> ./system-update
+./make-release.sh   # builds system-update.sh + slimmed ./system-update
 ```
 
-The slimming only removes whole-line comments and blank runs (inline code is untouched), and the result is re-checked with `bash -n`.
+The slimming only removes whole-line comments and blank runs (inline code is untouched), and the result is re-checked with `bash -n`. Both assets are git-ignored build artifacts — no need to commit them.
 
-To publish, tag a version matching `VERSION` in `src/lib/logging.sh` and push it:
+Publish with `gh` (run in a shell where `gh auth login` is done). Set `VERSION` in `src/lib/logging.sh` to the new version first, rebuild, commit to the `Claude` branch, then create the release from the branch (the tag is created at the branch HEAD):
 
 ```bash
-git tag v1.9.0 && git push origin v1.9.0
+gh release create v1.9.0 \
+    --repo c1hucktay4lors/system-update \
+    --target Claude \
+    --title "System-update v1.9.0" \
+    --notes-file RELEASE_NOTES.md \
+    ./system-update ./system-update.sh
 ```
 
-The `.github/workflows/release.yml` Action then builds, lints, verifies the tag matches `VERSION`, and creates the release with `system-update` attached (tags containing a hyphen, like `-beta`, are marked pre-release). The slimmed asset is a build artifact — no need to commit it.
+Add `--prerelease` for beta/experimental tags. The tag is what `system-update -u` compares against the local `VERSION`, so keep the two in sync — an installed build will only ever offer to move "up" a version. `release-1.9.0.sh` in the repo root does all of the above (preflight, build, push, release, verify) in one pass; copy it and change `TAG`/`TITLE` for the next version.
 
 ## Usage
 
