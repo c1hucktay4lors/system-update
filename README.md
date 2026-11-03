@@ -75,20 +75,7 @@ A release attaches two files: `system-update` (slimmed — the exact name the se
 ./make-release.sh   # builds system-update.sh + slimmed ./system-update
 ```
 
-The slimming only removes whole-line comments and blank runs (inline code is untouched), and the result is re-checked with `bash -n`. Both assets are git-ignored build artifacts — no need to commit them.
-
-Publish with `gh` (run in a shell where `gh auth login` is done). Set `VERSION` in `src/lib/logging.sh` to the new version first, rebuild, commit to the `Claude` branch, then create the release from the branch (the tag is created at the branch HEAD):
-
-```bash
-gh release create v1.9.0 \
-    --repo c1hucktay4lors/system-update \
-    --target Claude \
-    --title "System-update v1.9.0" \
-    --notes-file RELEASE_NOTES.md \
-    ./system-update ./system-update.sh
-```
-
-Add `--prerelease` for beta/experimental tags. The tag is what `system-update -u` compares against the local `VERSION`, so keep the two in sync — an installed build will only ever offer to move "up" a version. `release-1.9.0.sh` in the repo root does all of the above (preflight, build, push, release, verify) in one pass; copy it and change `TAG`/`TITLE` for the next version.
+The slimming only removes whole-line comments and blank runs (inline code is untouched), and the result is re-checked with `bash -n`.
 
 ## Usage
 
